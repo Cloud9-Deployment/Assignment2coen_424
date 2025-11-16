@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "user_account_id": {"type": "integer"},
+    "email": {"type": "string"},
+    "delivery_address": {"type": "string"}
+  },
+  "required": ["user_account_id", "email", "delivery_address"]
+}

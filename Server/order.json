@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "order_id": { "type": "int"},
+    "order_status": {
+      "type": "string",
+      "enum": [
+        "under process",
+        "shipping",
+        "delivered"
+      ]
+    },
+    "items_order": {"type":  "array"},
+    "email": {"type": "string"},
+    "address": {"type": "string"}
+  },
+  "required": ["order_id","order_status","items_order","email","address"]
+
+}
