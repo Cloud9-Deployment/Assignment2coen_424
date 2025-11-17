@@ -31,7 +31,7 @@ except Exception as e:
 
 # To greet
 @app.route('/', methods=['GET'])
-def hello_world():
+def entry():
     results= "User V1 Service is running! With " + str(get_number_of_users()) + " users."
     return results
 
@@ -45,7 +45,7 @@ def create_user():
     
     return jsonify({"status": "User V1 created " + email})
 
-@app.route('/user/<user_id>', methods=['PUT'])
+@app.route('/user/<user_account_id>', methods=['PUT'])
 def update_user(user_id):
     data = request.get_json()
     email = data.get("email")
@@ -54,32 +54,77 @@ def update_user(user_id):
     
     return jsonify({"status": "User V1 updated " + user_id})
 
+# Update email of the user by user_account_id
+@app.route('/users/<user_account_id>/email', methods=['PUT'])
+def update_user_by_email(user_account_id):
+    data = request.get_json()
+    email = data.get("email")
+    address = data.get("delivery_address")
+    
+    user = users_collection.find_one({"user_account_id": user_account_id})
+    print(user)
+    if user:
+        userUpdate(user["_id"],user_account_id, email, address)
+        return jsonify({"status": "User V1 updated " + email})
+    else:
+        return jsonify({"status": "User V1 not found with email " + email}), 404
+
+# Update address of the user by user_account_id
+@app.route('/users/<user_account_id>/address', methods=['PUT'])
+def update_user_by_address(user_account_id):
+    data = request.get_json()
+    email = data.get("email")
+    address = data.get("delivery_address")
+    
+    user = users_collection.find_one({"delivery_address": address})
+    if user:
+        userUpdate(user["_id"], email, address)
+        return jsonify({"status": "User V1 updated with address " + address})
+    else:
+        return jsonify({"status": "User V1 not found with address " + address}), 404
+
 # Helper functions --------------------------------
 
 # Function to get number of users
 def get_all_users():
-    print("Fetching all users from User database:")
     result = list(users_collection.find())
     return result
 
+# Function to get number of users
 def get_number_of_users():
     users = get_all_users()
-    print("Number of users in User V1 service:", len(users))
     return len(users)
 
-# Helper function to simulate user creation
+# Function to find new user_account_id
+def find_new_user_id():
+    users = get_all_users()
+    if not users:
+        return 1
+    max_id = max(user.get("user_account_id", 0) for user in users)
+    return max_id + 1
+
+# Helper function for the user creation
 def userCreation(email, address):
     results = users_collection.insert_one({
+        "user_account_id": find_new_user_id(),
         "email": email,
         "delivery_address": address
     })
-    print("Inserted user ", email, " ", address, " with id:", results.inserted_id)
+    return results
 
-# Helper function to simulate user update
-def userUpdate(user_id, email, address):
-    print(f"Updated user {user_id} at User V1 service:", email, address)
+# Helper function for the user update
+def userUpdate(object_id, user_account_id , email, address):
+    results = users_collection.update_one(
+        {"_id": object_id},
+        {"$set": {
+            "user_account_id": user_account_id,
+            "email": email,
+            "delivery_address": address
+        }}
+    )
+    return results
 
 if __name__ == '__main__':
-    print("Microservices user V1 !!!!")
+    print("Microservices user V1 ACTIVATE!!!!")
     app.run(host='0.0.0.0', port=5000, debug=True)
     
