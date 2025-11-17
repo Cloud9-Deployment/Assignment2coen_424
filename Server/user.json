@@ -1,7 +1,7 @@
 {
   "type": "object",
   "properties": {
-    "user_account_id": {"type": "integer"},
+    "user_account_id": {"type": "ObjectId"},
     "email": {"type": "string"},
     "delivery_address": {"type": "string"}
   },
