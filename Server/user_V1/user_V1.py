@@ -1,5 +1,19 @@
 from flask import Flask, request, jsonify
+from pymongo import MongoClient
+from dotenv import load_dotenv
+
+load_dotenv()
+
 app = Flask(__name__)
+
+try:
+    mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
+    client = MongoClient(mongo_uri)
+    db = client[os.getenv('MONGODB_USER_DB', 'user_database')]
+    users_collection = db['users']
+    print("✓ Connected to MongoDB - User Database (V1)")
+except Exception as e:
+    print(f"✗ MongoDB Connection Error: {e}")
 
 #Endpoints ----------------------------------
 
