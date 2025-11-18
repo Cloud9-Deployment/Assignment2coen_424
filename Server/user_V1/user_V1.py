@@ -71,9 +71,10 @@ def create_user():
 def update_user_by_email(user_account_id):
     data = request.get_json()
     email = data.get("email")
-    address = data.get("delivery_address")
     
     user = users_collection.find_one({"user_account_id": user_account_id})
+
+    address = user.get("delivery_address")
 
     if user:
         userUpdate(user["_id"],user_account_id, email, address)
@@ -85,10 +86,11 @@ def update_user_by_email(user_account_id):
 @app.route('/users/<user_account_id>/address', methods=['PUT'])
 def update_user_by_address(user_account_id):
     data = request.get_json()
-    email = data.get("email")
     address = data.get("delivery_address")
     
     user = users_collection.find_one({"delivery_address": address})
+    email = user.get("email")
+
     if user:
         userUpdate(user["_id"], email, address)
         return jsonify({"status": "User V1 updated with address " + address})
@@ -138,4 +140,5 @@ def userUpdate(object_id, user_account_id , email, address):
 
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
+    get_number_of_users()
     app.run(host='0.0.0.0', port=5000, debug=True)

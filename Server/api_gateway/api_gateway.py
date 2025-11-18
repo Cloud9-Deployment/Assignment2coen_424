@@ -52,12 +52,18 @@ def create_user():
 
     return jsonify({"status": "User created "+ response.json().get("status")})
 
-# To update a user
-@app.route('/user/<user_id>', methods=['PUT'])
+# To update a user email by ID
+@app.route('/user/<user_id>/email', methods=['PUT'])
 def update_user(user_id):
     response = requests.put(f"http://localhost:5000/user/{user_id}", json=request.get_json())
 
-    return jsonify({"status": "User updated "+ response.json().get("status")})
+    return response.json()
+
+@app.route('/user/<user_id>/address', methods=['PUT'])
+def update_user_address(user_id):
+    response = requests.put(f"http://localhost:5000/user/{user_id}/address", json=request.get_json())
+
+    return response.json()
 
 # Order endpoints ----------------------------------
 

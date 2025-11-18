@@ -17,7 +17,7 @@ def main():
     print("2. List Users")
     print("3. Get User Details by ID")
     print("4. Create User")
-    print("5. Update User email and address")
+    print("5. Update User email or address")
     choice = input("Enter your choice: ")
 
     # Handle user choices       ------------------------------------
@@ -83,18 +83,35 @@ def main():
     elif choice == '5':
         print("User ID to update:")
         user_id = input()
-        print("New email:")
-        email = input()
-        print("New address:")
-        address = input()
 
-        user = {
-            "email": email,
-            "delivery_address": address
-        }
+        print("Update email or address? (e/a):")
+        update_choice = input().lower()
+        if update_choice == 'e':
+            print("New email:")
+            email = input()
+            user = {
+                "email": email
+            }
+            
+            response = requests.put(f"http://localhost:8000/user/{user_id}/email", json=user)
+            print("Response from API Gateway:", response.json().get("status"))
 
-        response = requests.put(f"http://localhost:8000/user/{user_id}", json=user)
-        print("Response from API Gateway:", response.json().get("status"))
+        elif update_choice == 'a':
+            print("New address:")
+            address = input()
+            user = {
+                "delivery_address": address
+            }
+            
+            response = requests.put(f"http://localhost:8000/user/{user_id}/address", json=user)
+            
+            print("Response from API Gateway:", response.json().get("status"))
+        
+        else:
+            print("Invalid choice.")
+            return
+        
+
 
 
 
