@@ -33,6 +33,18 @@ def hello_world():
 
 # User endpoints ----------------------------------
 
+@app.route('/users', methods=['GET'])
+def list_users():
+    response = requests.get("http://localhost:5000/users")
+    return response.json() 
+
+# To see user details by ID
+@app.route('/user/<user_account_id>', methods=['GET'])
+def see_user(user_account_id):
+    response = requests.get(f"http://localhost:5000/user/{user_account_id}")
+
+    return response.json()
+
 # To create a user
 @app.route('/user', methods=['POST'])
 def create_user():

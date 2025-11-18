@@ -35,6 +35,27 @@ def entry():
     results= "User V1 Service is running! With " + str(get_number_of_users()) + " users."
     return results
 
+# To list all users
+@app.route('/users', methods=['GET'])
+def list_users():
+    users = get_all_users()
+    if not users:
+        return jsonify({"status":"User V1 ZERO user found"})
+    else:
+        for user in users:
+            user["_id"] = str(user["_id"])  
+        return jsonify({"status": users })
+
+# To see user details by user_account_id
+@app.route('/user/<user_account_id>', methods=['GET'])
+def see_user(user_account_id):
+    user = users_collection.find_one({"user_account_id": int(user_account_id)})
+    if user:
+        return jsonify({"status": "\nUsers:" +"\nUser ID:"+ str(user["user_account_id"]) 
+                        +"\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"]+"\n"})  
+    else:
+        return jsonify({"status": "User V1 not found with id " + user_account_id}), 404
+
 # To create a user
 @app.route('/user', methods=['POST'])
 def create_user():
@@ -45,15 +66,6 @@ def create_user():
     
     return jsonify({"status": "User V1 created " + email})
 
-@app.route('/user/<user_account_id>', methods=['PUT'])
-def update_user(user_id):
-    data = request.get_json()
-    email = data.get("email")
-    address = data.get("delivery_address")
-    userUpdate(user_id, email, address)
-    
-    return jsonify({"status": "User V1 updated " + user_id})
-
 # Update email of the user by user_account_id
 @app.route('/users/<user_account_id>/email', methods=['PUT'])
 def update_user_by_email(user_account_id):
@@ -62,12 +74,12 @@ def update_user_by_email(user_account_id):
     address = data.get("delivery_address")
     
     user = users_collection.find_one({"user_account_id": user_account_id})
-    print(user)
+
     if user:
         userUpdate(user["_id"],user_account_id, email, address)
         return jsonify({"status": "User V1 updated " + email})
     else:
-        return jsonify({"status": "User V1 not found with email " + email}), 404
+        return jsonify({"status": "User V1 not found with id " + user_account_id + " to change " +email}), 404
 
 # Update address of the user by user_account_id
 @app.route('/users/<user_account_id>/address', methods=['PUT'])
@@ -127,4 +139,3 @@ def userUpdate(object_id, user_account_id , email, address):
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
     app.run(host='0.0.0.0', port=5000, debug=True)
-    
