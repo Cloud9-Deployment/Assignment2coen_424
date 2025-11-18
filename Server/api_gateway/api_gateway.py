@@ -32,7 +32,6 @@ def hello_world():
     return response
 
 # User endpoints ----------------------------------
-
 @app.route('/users', methods=['GET'])
 def list_users():
     response = requests.get("http://localhost:5000/users")
@@ -42,52 +41,44 @@ def list_users():
 @app.route('/user/<user_account_id>', methods=['GET'])
 def see_user(user_account_id):
     response = requests.get(f"http://localhost:5000/user/{user_account_id}")
-
     return response.json()
 
 # To create a user
 @app.route('/user', methods=['POST'])
 def create_user():
     response = requests.post("http://localhost:5000/user", json=request.get_json())
-
     return jsonify({"status": "User created "+ response.json().get("status")})
 
 # To update a user email by ID
 @app.route('/user/<user_id>/email', methods=['PUT'])
 def update_user(user_id):
-    response = requests.put(f"http://localhost:5000/user/{user_id}", json=request.get_json())
-
+    response = requests.put(f"http://localhost:5000/user/{user_id}/email", json=request.get_json())
     return response.json()
 
+# To update a user address by ID
 @app.route('/user/<user_id>/address', methods=['PUT'])
 def update_user_address(user_id):
     response = requests.put(f"http://localhost:5000/user/{user_id}/address", json=request.get_json())
-
     return response.json()
 
 # Order endpoints ----------------------------------
-
 # To create an order
 @app.route('/order', methods=['POST'])
 def create_order():
     response = requests.post("http://localhost:5002/order", json=request.get_json())
-
     return jsonify({"status": "Order created "+ response.json().get("status")})
 
 # To update an order status
 @app.route('/order/status/<order_id>', methods=['PUT'])
 def update_order(order_id):
     response = requests.put(f"http://localhost:5002/order/{order_id}", json=request.get_json())
-
     return jsonify({"status": "Order updated "+ response.json().get("status")})
 
 # To update an email or address
 @app.route('/user/contact/<user_id>', methods=['PUT'])
 def update_user_contact(user_id):
     response = requests.put(f"http://localhost:5002/user/contact/{user_id}", json=request.get_json())
-
     return jsonify({"status": "User contact updated "+ response.json().get("status")})
-
 
 if __name__ == '__main__':
     print("API GATEWAY !!!!")

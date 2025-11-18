@@ -11,21 +11,36 @@ app = Flask(__name__)
 
 # MongoDB Connection ------------------------------
 
+users_collection = None
+
 try:
     username = quote_plus(os.getenv('MONGODB_USER'))
     password = quote_plus(os.getenv('MONGODB_PASSWORD'))
-    mongo_uri = f"mongodb+srv://{username}:{password}@cluster0.4agn1ar.mongodb.net/?appName=Cluster0"
     
+    # Use proper MongoDB Atlas connection string
+    mongo_uri = f"mongodb+srv://{username}:{password}@cluster0.4agn1ar.mongodb.net/?retryWrites=true&w=majority"
+
     # Add tlsCAFile parameter with certifi's CA bundle
     client = MongoClient(
         mongo_uri,
-        tlsCAFile=certifi.where()
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=10000
     )
+    
+    # Test the connection
+    client.admin.command('ping')
+    
     db = client[os.getenv('MONGODB_USER_DB', 'user_database')]
     users_collection = db['users']
     print("✓ Connected to MongoDB - User Database (V1)")
 except Exception as e:
     print(f"✗ MongoDB Connection Error: {e}")
+    print("Make sure:")
+    print("  1. Your MongoDB Atlas cluster is running")
+    print("  2. Credentials are correct (MONGODB_USER and MONGODB_PASSWORD)")
+    print("  3. Your IP address is whitelisted in MongoDB Atlas")
+    print("  4. You have internet connection")
 
 #Endpoints ----------------------------------
 
@@ -67,35 +82,37 @@ def create_user():
     return jsonify({"status": "User V1 created " + email})
 
 # Update email of the user by user_account_id
-@app.route('/users/<user_account_id>/email', methods=['PUT'])
+@app.route('/user/<user_account_id>/email', methods=['PUT'])
 def update_user_by_email(user_account_id):
     data = request.get_json()
     email = data.get("email")
     
-    user = users_collection.find_one({"user_account_id": user_account_id})
 
-    address = user.get("delivery_address")
+    user = users_collection.find_one({"user_account_id": int(user_account_id)})
 
     if user:
-        userUpdate(user["_id"],user_account_id, email, address)
-        return jsonify({"status": "User V1 updated " + email})
+        address = user.get("delivery_address")
+        userUpdate(user["_id"], int(user_account_id), email, address)
+        user = users_collection.find_one({"user_account_id": int(user_account_id)})
+        return jsonify({"status": "\nUsers:" +"\nUser ID: "+ str(user["user_account_id"]) 
+                      +"\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"]+"\n"}) 
     else:
         return jsonify({"status": "User V1 not found with id " + user_account_id + " to change " +email}), 404
 
 # Update address of the user by user_account_id
-@app.route('/users/<user_account_id>/address', methods=['PUT'])
+@app.route('/user/<user_account_id>/address', methods=['PUT'])
 def update_user_by_address(user_account_id):
     data = request.get_json()
     address = data.get("delivery_address")
     
-    user = users_collection.find_one({"delivery_address": address})
-    email = user.get("email")
-
+    user = users_collection.find_one({"user_account_id": int(user_account_id)})
+    
     if user:
-        userUpdate(user["_id"], email, address)
+        email = user.get("email")
+        userUpdate(user["_id"], int(user_account_id), email, address)
         return jsonify({"status": "User V1 updated with address " + address})
     else:
-        return jsonify({"status": "User V1 not found with address " + address}), 404
+        return jsonify({"status": "User V1 not found with id " + user_account_id}), 404
 
 # Helper functions --------------------------------
 
@@ -140,5 +157,4 @@ def userUpdate(object_id, user_account_id , email, address):
 
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
-    get_number_of_users()
     app.run(host='0.0.0.0', port=5000, debug=True)

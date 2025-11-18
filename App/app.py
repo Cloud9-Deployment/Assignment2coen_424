@@ -82,10 +82,12 @@ def main():
     # Choice 5: Update User email and address
     elif choice == '5':
         print("User ID to update:")
-        user_id = input()
+        user_account_id = input()
 
         print("Update email or address? (e/a):")
         update_choice = input().lower()
+
+        # Handle email
         if update_choice == 'e':
             print("New email:")
             email = input()
@@ -93,9 +95,22 @@ def main():
                 "email": email
             }
             
-            response = requests.put(f"http://localhost:8000/user/{user_id}/email", json=user)
-            print("Response from API Gateway:", response.json().get("status"))
+            response = requests.put(f"http://localhost:8000/user/{user_account_id}/email", json=user)
 
+            data = response.json()
+        # Extract the users from the response
+            users = data.get("status")
+            
+            if not users:
+                print("No users found.")
+            else:
+                if isinstance(users, list):
+                    for user in users:
+                        print(f"\nUser ID: {user.get('user_account_id')}, \nEmail: {user.get('email')}, \nAddress: {user.get('delivery_address')} \n")
+                else:
+                    print(users)  # If it's a string message
+
+        # Handle address
         elif update_choice == 'a':
             print("New address:")
             address = input()
@@ -103,7 +118,7 @@ def main():
                 "delivery_address": address
             }
             
-            response = requests.put(f"http://localhost:8000/user/{user_id}/address", json=user)
+            response = requests.put(f"http://localhost:8000/user/{user_account_id}/address", json=user)
             
             print("Response from API Gateway:", response.json().get("status"))
         
@@ -111,9 +126,6 @@ def main():
             print("Invalid choice.")
             return
         
-
-
-
 
     main()
 
