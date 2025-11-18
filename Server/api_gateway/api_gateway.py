@@ -62,6 +62,19 @@ def update_user_address(user_id):
     return response.json()
 
 # Order endpoints ----------------------------------
+
+#To list all orders
+@app.route('/orders', methods=['GET'])
+def list_orders():
+    response = requests.get("http://localhost:5002/orders")
+    return response.json()
+
+#To see order details by order_id
+@app.route('/order/<order_id>', methods=['GET'])
+def see_order(order_id):
+    response = requests.get(f"http://localhost:5002/order/{order_id}")
+    return response.json()
+
 # To create an order
 @app.route('/order', methods=['POST'])
 def create_order():
@@ -74,11 +87,17 @@ def update_order(order_id):
     response = requests.put(f"http://localhost:5002/order/{order_id}", json=request.get_json())
     return jsonify({"status": "Order updated "+ response.json().get("status")})
 
-# To update an email or address
-@app.route('/user/contact/<user_id>', methods=['PUT'])
-def update_user_contact(user_id):
-    response = requests.put(f"http://localhost:5002/user/contact/{user_id}", json=request.get_json())
-    return jsonify({"status": "User contact updated "+ response.json().get("status")})
+# To update a user email by ID
+@app.route('/order/<order_id>/email', methods=['PUT'])
+def update_order_email(order_id):
+    response = requests.put(f"http://localhost:5002/order/{order_id}/email", json=request.get_json())
+    return response.json()
+
+# To update a user address by ID
+@app.route('/order/<order_id>/address', methods=['PUT'])
+def update_order_address(order_id):
+    response = requests.put(f"http://localhost:5002/order/{order_id}/address", json=request.get_json())
+    return response.json()
 
 if __name__ == '__main__':
     print("API GATEWAY !!!!")
