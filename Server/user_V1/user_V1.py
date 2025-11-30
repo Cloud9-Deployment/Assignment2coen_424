@@ -1,9 +1,10 @@
 from urllib.parse import quote_plus
-from flask import Flask, request, jsonify
+from flask import Flask, json, request, jsonify
 from pymongo import MongoClient
 import certifi
 import os
 from dotenv import load_dotenv
+import pika
 
 load_dotenv()
 
@@ -41,6 +42,85 @@ except Exception as e:
     print("  2. Credentials are correct (MONGODB_USER and MONGODB_PASSWORD)")
     print("  3. Your IP address is whitelisted in MongoDB Atlas")
     print("  4. You have internet connection")
+
+#RabbitMQ Connection ------------------------------
+#Main function to establish RabbitMQ connection
+def RabubMQ_connection():
+    rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
+    rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
+    rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
+    rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'guest')
+
+    credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
+    parameters = pika.ConnectionParameters(
+        host=rabbitmq_host,
+        port=rabbitmq_port,
+        credentials=credentials)
+
+    try:
+        rabbitmq_connection = pika.BlockingConnection(parameters)
+        print("✓ Connected to RabbitMQ")
+        return rabbitmq_connection
+    except Exception as e:
+        print(f"✗ RabbitMQ Connection Error: {e}")
+
+
+#Test the RabbitMQ connection
+import time
+
+def wait_for_rabbitmq(max_retries=5, delay=3):
+    """Wait for RabbitMQ to be available"""
+    for attempt in range(max_retries):
+        try:
+            connection = RabubMQ_connection()
+            if connection and connection.is_open:
+                print("✓ RabbitMQ is ready")
+                connection.close()
+                return True
+        except Exception as e:
+            print(f"Attempt {attempt + 1}/{max_retries}: RabbitMQ not ready - {e}")
+        
+        if attempt < max_retries - 1:
+            print(f"Retrying in {delay} seconds...")
+            time.sleep(delay)
+    
+    return False
+
+
+# Rabbit mq publisher
+def rabbitmq_publisher(event_type, data):
+    try:
+        connection = RabubMQ_connection()
+        if connection is None:
+            print("RabbitMQ connection not established. Cannot publish message.")
+            
+        channel = connection.channel()
+
+        channel.exchange_declare(exchange='user_events', 
+                                exchange_type='topic', 
+                                durable=True)
+
+        event = {"event_type": event_type,
+                "data": data}
+
+
+        channel.basic_publish(exchange='user_events',
+                            routing_key= f"user.{event_type}",
+                            body=json.dumps(event),
+                                properties=pika.BasicProperties(
+                                    delivery_mode=2,  # Make message persistent
+                                    content_type='application/json'
+                                )
+                            )
+
+        connection.close()
+        print(f"✓ Published event to RabbitMQ: {event_type}")
+        return True
+    except Exception as e:
+        print(f"✗ RabbitMQ Publish Error: {e}")
+        return False
+
+
 
 #Endpoints ----------------------------------
 
@@ -157,4 +237,5 @@ def userUpdate(object_id, user_account_id , email, address):
 
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
+    wait_for_rabbitmq()
     app.run(host='0.0.0.0', port=5000, debug=True)
