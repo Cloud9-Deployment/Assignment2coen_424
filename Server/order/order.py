@@ -104,12 +104,35 @@ def start_event_subscriber():
 def hello_world():
     return 'Order Service is running!'
 
+# To list all orders
+@app.route('/orders', methods=['GET'])
+def list_orders():
+    orders = get_all_orders()
+    if not orders:
+        return jsonify({"status": "No orders found"})
+    else:
+        for order in orders:
+            order["_id"] = str(order["_id"])  
+        return jsonify({"status": orders})
+
+# To see order details by order_id
+@app.route('/order/<order_id>', methods=['GET'])
+def see_order(order_id):
+    order = orderExists(order_id)
+    if order:
+        order["_id"] = str(order["_id"])
+        return jsonify({"status": order})
+    else:
+        return jsonify({"status": "Order not found with id " + order_id}), 404
+
 # To create an order
 @app.route('/order', methods=['POST'])
 def create_order():
     data = request.get_json()
     user_id = data.get("user_id")
     items = data.get("items")
+    email = data.get("email", "N/A")
+    address = data.get("delivery_address", "N/A")
 
     if items and isinstance(items, list):
         order_items = items
@@ -118,9 +141,9 @@ def create_order():
         quantity = data.get("quantity", 1)
         order_items = [{"item": item, "quantity": quantity}]
 
-    result = orderCreation(user_id, order_items)
+    result = orderCreation(user_id, order_items, email, address)
 
-    return jsonify({"status": "Order created for user " + user_id, "order_id": str(getattr(result, 'inserted_id', '')) , "items": order_items})
+    return jsonify({"status": "Order created for user " + user_id, "order_id": str(result.inserted_id), "items": order_items})
 
 
 # To update status of an order

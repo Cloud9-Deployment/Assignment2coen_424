@@ -1,0 +1,26 @@
+# API Gateway Configuration File
+# This file controls the strangler pattern routing behavior
+
+# Strangler Pattern Configuration
+# The strangler pattern allows gradual migration from V1 to V2
+# v1_percentage: P% of user requests go to V1
+# v2_percentage: (100-P)% of user requests go to V2
+strangler_pattern:
+  enabled: true
+  v1_percentage: 80    # 80% of requests go to V1
+  v2_percentage: 20    # 20% of requests go to V2
+
+# Service URLs (can be overridden by environment variables)
+services:
+  user_v1: http://localhost:5000
+  user_v2: http://localhost:5001
+  order: http://localhost:5002
+  event: http://localhost:5003
+
+# Request timeout in seconds
+timeout: 10
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "[%(asctime)s] %(levelname)s: %(message)s"
