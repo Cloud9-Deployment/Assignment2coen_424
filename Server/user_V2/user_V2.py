@@ -64,6 +64,7 @@ def RabbitMQ_connection():
         return rabbitmq_connection
     except Exception as e:
         print(f"✗ RabbitMQ Connection Error: {e}")
+        return None
 
 
 #Test the RabbitMQ connection
@@ -86,12 +87,14 @@ def wait_for_rabbitmq(max_retries=5, delay=3):
     return False
 
 
-# Rabbit mq publisher
+# RabbitMQ publisher
 def rabbitmq_publisher(event_type, data):
+    """Publish events to RabbitMQ for synchronization"""
     try:
         connection = RabbitMQ_connection()
         if connection is None:
             print("RabbitMQ connection not established. Cannot publish message.")
+            return False
             
         channel = connection.channel()
 
@@ -99,21 +102,24 @@ def rabbitmq_publisher(event_type, data):
                                 exchange_type='topic', 
                                 durable=True)
 
-        event = {"event_type": event_type,
-                "data": data}
+        event = {
+            "event_type": event_type,
+            "data": data,
+            "source": "user_v2"
+        }
 
-
-        channel.basic_publish(exchange='user_events',
-                            routing_key= f"user.{event_type}",
-                            body=json.dumps(event),
-                                properties=pika.BasicProperties(
-                                    delivery_mode=2,  
-                                    content_type='application/json'
-                                )
-                            )
+        channel.basic_publish(
+            exchange='user_events',
+            routing_key=f"user.{event_type}",
+            body=json.dumps(event),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  
+                content_type='application/json'
+            )
+        )
 
         connection.close()
-        print(f"✓ Published event to RabbitMQ: {event_type}")
+        print(f"✓ Published event to RabbitMQ: user.{event_type}")
         return True
     except Exception as e:
         print(f"✗ RabbitMQ Publish Error: {e}")
@@ -124,7 +130,7 @@ def rabbitmq_publisher(event_type, data):
 # To greet
 @app.route('/', methods=['GET'])
 def entry():
-    results= "User V2 Service is running!"
+    results = "User V2 Service is running!"
     return results
 
 # To list all users
@@ -132,19 +138,21 @@ def entry():
 def list_users():
     users = get_all_users()
     if not users:
-        return jsonify({"status":"User V2 ZERO user found"})
+        return jsonify({"status": "User V2 ZERO user found"})
     else:
         for user in users:
             user["_id"] = str(user["_id"])  
-        return jsonify({"status": users })
+        return jsonify({"status": users})
 
 # To see user details by user_account_id
 @app.route('/user/<user_account_id>', methods=['GET'])
 def see_user(user_account_id):
     user = users_collection.find_one({"user_account_id": int(user_account_id)})
     if user:
-        return jsonify({"status": "\nUsers:" +"\nUser ID:"+ str(user["user_account_id"]) 
-                        +"\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"]+"\n"})  
+        return jsonify({
+            "status": "\nUsers:" + "\nUser ID:" + str(user["user_account_id"]) 
+            + "\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"] + "\n"
+        })  
     else:
         return jsonify({"status": "User V2 not found with id " + user_account_id}), 404
 
@@ -154,7 +162,14 @@ def create_user():
     data = request.get_json()
     email = data.get("email")
     address = data.get("delivery_address")
-    userCreation(email, address)
+    result = userCreation(email, address)
+    
+    # Publish user created event
+    rabbitmq_publisher("created", {
+        "user_account_id": result,
+        "email": email,
+        "delivery_address": address
+    })
     
     return jsonify({"status": "User V2 created " + email})
 
@@ -162,40 +177,60 @@ def create_user():
 @app.route('/user/<user_account_id>/email', methods=['PUT'])
 def update_user_by_email(user_account_id):
     data = request.get_json()
-    email = data.get("email")
+    new_email = data.get("email")
     
-
     user = users_collection.find_one({"user_account_id": int(user_account_id)})
 
     if user:
+        old_email = user.get("email")
         address = user.get("delivery_address")
-        userUpdate(user["_id"], int(user_account_id), email, address)
+        userUpdate(user["_id"], int(user_account_id), new_email, address)
+        
+        # PUBLISH EVENT FOR SYNCHRONIZATION - This is the key fix!
+        rabbitmq_publisher("email_updated", {
+            "user_account_id": int(user_account_id),
+            "old_email": old_email,
+            "new_email": new_email,
+            "delivery_address": address
+        })
+        
         user = users_collection.find_one({"user_account_id": int(user_account_id)})
-        return jsonify({"status": "\nUsers:" +"\nUser ID: "+ str(user["user_account_id"]) 
-                      +"\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"]+"\n"}) 
+        return jsonify({
+            "status": "\nUsers:" + "\nUser ID: " + str(user["user_account_id"]) 
+            + "\nEmail:" + user["email"] + "\nAddress:" + user["delivery_address"] + "\n"
+        }) 
     else:
-        return jsonify({"status": "User V1 not found with id " + user_account_id + " to change " +email}), 404
+        return jsonify({"status": "User V2 not found with id " + user_account_id + " to change " + new_email}), 404
 
 # Update address of the user by user_account_id
 @app.route('/user/<user_account_id>/address', methods=['PUT'])
 def update_user_by_address(user_account_id):
     data = request.get_json()
-    address = data.get("delivery_address")
+    new_address = data.get("delivery_address")
     
     user = users_collection.find_one({"user_account_id": int(user_account_id)})
     
     if user:
         email = user.get("email")
-        userUpdate(user["_id"], int(user_account_id), email, address)
-        return jsonify({"status": "User V2 updated with address " + address})
+        old_address = user.get("delivery_address")
+        userUpdate(user["_id"], int(user_account_id), email, new_address)
+        
+        # PUBLISH EVENT FOR SYNCHRONIZATION - This is the key fix!
+        rabbitmq_publisher("address_updated", {
+            "user_account_id": int(user_account_id),
+            "email": email,
+            "old_address": old_address,
+            "new_address": new_address
+        })
+        
+        return jsonify({"status": "User V2 updated with address " + new_address})
     else:
         return jsonify({"status": "User V2 not found with id " + user_account_id}), 404
-    
-# new feature for V2
+
 # V2 New Feature: Batch Operations
 @app.route('/users/batch', methods=['POST'])
 def create_users_batch():
-    """Create multiple users in a batch operation"""
+    """Create multiple users in a batch operation - V2 exclusive feature"""
     data = request.get_json()
     
     try:
@@ -214,11 +249,17 @@ def create_users_batch():
             if not email or not address:
                 errors.append({"data": user_data, "error": "Missing required fields"})
                 continue
-                
             
             try:
                 new_user_id = userCreation(email, address)
                 created_users.append({
+                    "user_account_id": new_user_id,
+                    "email": email,
+                    "delivery_address": address
+                })
+                
+                # Publish event for each user created
+                rabbitmq_publisher("created", {
                     "user_account_id": new_user_id,
                     "email": email,
                     "delivery_address": address
@@ -240,7 +281,7 @@ def create_users_batch():
 
 # Helper functions --------------------------------
 
-# Function to get number of users
+# Function to get all users
 def get_all_users():
     result = list(users_collection.find())
     return result
@@ -260,15 +301,16 @@ def find_new_user_id():
 
 # Helper function for the user creation
 def userCreation(email, address):
-    results = users_collection.insert_one({
-        "user_account_id": find_new_user_id(),
+    new_id = find_new_user_id()
+    users_collection.insert_one({
+        "user_account_id": new_id,
         "email": email,
         "delivery_address": address
     })
-    return results
+    return new_id
 
 # Helper function for the user update
-def userUpdate(object_id, user_account_id , email, address):
+def userUpdate(object_id, user_account_id, email, address):
     results = users_collection.update_one(
         {"_id": object_id},
         {"$set": {

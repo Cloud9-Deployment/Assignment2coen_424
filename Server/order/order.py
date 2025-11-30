@@ -4,13 +4,13 @@ import certifi
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
+import json
 
 load_dotenv()
 
 app = Flask(__name__)
 
-#(“under process”,”shipping” and “delivered” )
-
+# Order statuses: "under process", "shipping", "delivered"
 
 # MongoDB Connection ------------------------------
 
@@ -45,7 +45,7 @@ except Exception as e:
 #RabbitMQ Connection ------------------------------
 
 def start_event_subscriber():
-    """Start RabbitMQ event subscriber in a separate thread"""
+    """Start RabbitMQ event subscriber in a separate thread to handle user events"""
     import threading
     import pika
 
@@ -67,16 +67,64 @@ def start_event_subscriber():
                 connection = pika.BlockingConnection(parameters)
                 channel = connection.channel()
 
-                result = channel.queue_declare(queue='user_events')
+                # Declare the exchange (must match user service)
+                channel.exchange_declare(
+                    exchange='user_events', 
+                    exchange_type='topic', 
+                    durable=True
+                )
+                
+                # Declare a queue for order service
+                result = channel.queue_declare(queue='order_service_queue', durable=True)
                 queue_name = result.method.queue
+
+                # Bind to user events - listen for email and address updates
+                channel.queue_bind(
+                    exchange='user_events', 
+                    queue=queue_name, 
+                    routing_key='user.email_updated'
+                )
+                channel.queue_bind(
+                    exchange='user_events', 
+                    queue=queue_name, 
+                    routing_key='user.address_updated'
+                )
+                channel.queue_bind(
+                    exchange='user_events', 
+                    queue=queue_name, 
+                    routing_key='user.*'  # Listen to all user events
+                )
 
                 print("✓ Order service subscribed to user events")
 
                 def callback(ch, method, properties, body):
+                    """Handle incoming events and synchronize data"""
                     try:
-                        print(f" [x] Received {method.routing_key} : {body.decode()}")
-                        # Here you would add logic to handle the event, e.g., update orders
+                        event_data = json.loads(body.decode())
+                        routing_key = method.routing_key
+                        print(f" [x] Received event {routing_key}: {event_data}")
+                        
+                        event_type = event_data.get("event_type")
+                        data = event_data.get("data", {})
+                        
+                        # Handle email update synchronization
+                        if event_type == "email_updated":
+                            user_id = data.get("user_account_id")
+                            new_email = data.get("new_email")
+                            if user_id and new_email:
+                                sync_user_email(user_id, new_email)
+                                print(f"✓ Synchronized email for user {user_id} to {new_email}")
+                        
+                        # Handle address update synchronization
+                        elif event_type == "address_updated":
+                            user_id = data.get("user_account_id")
+                            new_address = data.get("new_address")
+                            if user_id and new_address:
+                                sync_user_address(user_id, new_address)
+                                print(f"✓ Synchronized address for user {user_id} to {new_address}")
+                        
                         ch.basic_ack(delivery_tag=method.delivery_tag)
+                        
                     except Exception as e:
                         print(f"Error processing event: {e}")
                         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
@@ -97,6 +145,31 @@ def start_event_subscriber():
     return thread
 
 
+# Synchronization helper functions --------------------------------
+
+def sync_user_email(user_id, new_email):
+    """Synchronize user email across all their orders"""
+    if orders_collection is not None:
+        result = orders_collection.update_many(
+            {"user_id": str(user_id)},
+            {"$set": {"user_email": new_email}}
+        )
+        print(f"Updated {result.modified_count} orders with new email")
+        return result.modified_count
+    return 0
+
+def sync_user_address(user_id, new_address):
+    """Synchronize user address across all their orders"""
+    if orders_collection is not None:
+        result = orders_collection.update_many(
+            {"user_id": str(user_id)},
+            {"$set": {"user_address": new_address}}
+        )
+        print(f"Updated {result.modified_count} orders with new address")
+        return result.modified_count
+    return 0
+
+
 #Endpoints ----------------------------------
 
 # To greet
@@ -110,6 +183,17 @@ def list_orders():
     orders = get_all_orders()
     if not orders:
         return jsonify({"status": "No orders found"})
+    else:
+        for order in orders:
+            order["_id"] = str(order["_id"])  
+        return jsonify({"status": orders})
+
+# To get orders by status
+@app.route('/orders/status/<status>', methods=['GET'])
+def list_orders_by_status(status):
+    orders = get_orders_by_status(status)
+    if not orders:
+        return jsonify({"status": f"No orders found with status: {status}"})
     else:
         for order in orders:
             order["_id"] = str(order["_id"])  
@@ -143,7 +227,11 @@ def create_order():
 
     result = orderCreation(user_id, order_items, email, address)
 
-    return jsonify({"status": "Order created for user " + user_id, "order_id": str(result.inserted_id), "items": order_items})
+    return jsonify({
+        "status": "Order created for user " + str(user_id), 
+        "order_id": str(result.inserted_id), 
+        "items": order_items
+    })
 
 
 # To update status of an order
@@ -151,19 +239,57 @@ def create_order():
 def update_order(order_id):
     data = request.get_json()
     status = data.get("status")
-    orderStatusUpdate(order_id, status)
     
-    return jsonify({"status": "Order " + order_id + " updated to " + status})
+    if orderStatusUpdate(order_id, status):
+        return jsonify({"status": "Order " + order_id + " updated to " + status})
+    else:
+        return jsonify({"status": "Failed to update order. Invalid status or order not found."}), 400
 
-# To update user email or address
+# To update order email
+@app.route('/order/<order_id>/email', methods=['PUT'])
+def update_order_email(order_id):
+    data = request.get_json()
+    email = data.get("email")
+    
+    order = orderExists(order_id)
+    if order:
+        orders_collection.update_one(
+            {"order_id": int(order_id)},
+            {"$set": {"user_email": email}}
+        )
+        return jsonify({"status": f"Order {order_id} email updated to {email}"})
+    else:
+        return jsonify({"status": "Order not found with id " + order_id}), 404
+
+# To update order address
+@app.route('/order/<order_id>/address', methods=['PUT'])
+def update_order_address(order_id):
+    data = request.get_json()
+    address = data.get("delivery_address")
+    
+    order = orderExists(order_id)
+    if order:
+        orders_collection.update_one(
+            {"order_id": int(order_id)},
+            {"$set": {"user_address": address}}
+        )
+        return jsonify({"status": f"Order {order_id} address updated to {address}"})
+    else:
+        return jsonify({"status": "Order not found with id " + order_id}), 404
+
+# To update user contact info across all their orders (direct API call)
 @app.route('/user/contact/<user_id>', methods=['PUT'])
 def update_user_contact(user_id):
     data = request.get_json()
     email = data.get("email")
     address = data.get("delivery_address")
-    userContactUpdate(user_id, email, address)
     
-    return jsonify({"status": "User " + user_id + " contact updated"})
+    updated = userContactUpdate(user_id, email, address)
+    
+    if updated:
+        return jsonify({"status": "User " + user_id + " contact updated in orders"})
+    else:
+        return jsonify({"status": "No orders found for user " + user_id}), 404
 
 # Helper functions --------------------------------
 
@@ -194,7 +320,7 @@ def find_new_order_id():
 def orderCreation(user_id, items, email, address):
     results = orders_collection.insert_one({
         "order_id": find_new_order_id(),
-        "user_id": user_id,
+        "user_id": str(user_id),
         "items": items,
         "user_email": email,
         "user_address": address,
@@ -209,7 +335,7 @@ def orderExists(order_id):
 
 # Helper function to see if user has any orders
 def userDidOrder(user_id):
-    orders = list(orders_collection.find({"user_id": user_id}))
+    orders = list(orders_collection.find({"user_id": str(user_id)}))
     return orders
 
 # Helper function to update order status
@@ -235,13 +361,13 @@ def userContactUpdate(user_id, email, address):
     
     if update_fields and userDidOrder(user_id):
         orders_collection.update_many(
-            {"user_id": user_id},
+            {"user_id": str(user_id)},
             {"$set": update_fields}
         )
         return True
     return False
 
 if __name__ == '__main__':
-    print("Microservices order !!!!")
+    print("Microservices order ACTIVATE!!!!")
     start_event_subscriber()
     app.run(host='0.0.0.0', port=5002, debug=True)
