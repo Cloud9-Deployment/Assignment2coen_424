@@ -97,16 +97,23 @@ def get_user_service_url():
 
 # Gateway endpoints ----------------------------------
 
-# Health check and status
+# Simple health check - FAST (doesn't check other services)
 @app.route('/', methods=['GET'])
 def hello_world():
+    """Simple health check - returns immediately"""
+    return "API Gateway is running!"
+
+# Detailed status check (checks all services) - use /status instead
+@app.route('/status', methods=['GET'])
+def detailed_status():
+    """Detailed status check - checks all services (may be slow)"""
     response = "\n=== API Gateway Status ===\n"
     response += f"Strangler Pattern: {'Enabled' if config['strangler_pattern']['enabled'] else 'Disabled'}\n"
     response += f"V1 Traffic: {config['strangler_pattern']['v1_percentage']}%\n"
     response += f"V2 Traffic: {config['strangler_pattern']['v2_percentage']}%\n"
     response += "\n=== Service Status ===\n"
     
-    timeout = config.get('timeout', 2)
+    timeout = 2  # Short timeout for status checks
     
     try:
         res1 = requests.get(f"{config['services'].get('user_v1', USER_V1_URL)}/", timeout=timeout)
