@@ -23,6 +23,7 @@ def main():
     print("8. Create Order")
     print("9. Update Order status")
     print("10. Update Order email or address")
+    print("11. Batch Create Users")
     choice = input("Enter your choice: ")
 
     # Handle user choices       ------------------------------------
@@ -238,6 +239,34 @@ def main():
             print("\nInvalid choice.\n")
             main()
         
+    # Choice 11: Batch Create Users
+    elif choice == '11':
+        print("Enter number of users to create in batch:")
+        num_users = int(input())
+        users_list = []
+
+        for i in range(num_users):
+            print(f"\nEntering details for user {i+1}:")
+            print("Email:")
+            email = input()
+            print("Delivery Address:")
+            address = input()
+
+            user_data = {
+                "email": email,
+                "delivery_address": address
+            }
+            users_list.append(user_data)
+
+        batch_data = {
+            "users": users_list
+        }
+
+        response = requests.post("http://localhost:8000/users/batch", json=batch_data)
+        data = response.json()
+        print("Batch User Creation Response:")
+        print(data)
+
     else:
         print("\nInvalid choice.\n")
         main()
