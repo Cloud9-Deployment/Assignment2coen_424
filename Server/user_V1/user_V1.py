@@ -45,7 +45,7 @@ except Exception as e:
 
 #RabbitMQ Connection ------------------------------
 #Main function to establish RabbitMQ connection
-def RabubMQ_connection():
+def RabbitMQ_connection():
     rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
     rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
     rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
@@ -108,7 +108,7 @@ def rabbitmq_publisher(event_type, data):
                             routing_key= f"user.{event_type}",
                             body=json.dumps(event),
                                 properties=pika.BasicProperties(
-                                    delivery_mode=2,  # Make message persistent
+                                    delivery_mode=2,  
                                     content_type='application/json'
                                 )
                             )
