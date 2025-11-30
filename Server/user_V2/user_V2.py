@@ -124,7 +124,7 @@ def rabbitmq_publisher(event_type, data):
 # To greet
 @app.route('/', methods=['GET'])
 def entry():
-    results= "User V2 Service is running! With " + str(get_number_of_users()) + " users."
+    results= "User V2 Service is running!"
     return results
 
 # To list all users
