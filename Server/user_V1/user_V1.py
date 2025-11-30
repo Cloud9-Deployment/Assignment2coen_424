@@ -5,6 +5,7 @@ import certifi
 import os
 from dotenv import load_dotenv
 import pika
+import time
 
 load_dotenv()
 
@@ -66,13 +67,11 @@ def RabbitMQ_connection():
 
 
 #Test the RabbitMQ connection
-import time
-
 def wait_for_rabbitmq(max_retries=5, delay=3):
     """Wait for RabbitMQ to be available"""
     for attempt in range(max_retries):
         try:
-            connection = RabubMQ_connection()
+            connection = RabbitMQ_connection()
             if connection and connection.is_open:
                 print("✓ RabbitMQ is ready")
                 connection.close()
@@ -90,7 +89,7 @@ def wait_for_rabbitmq(max_retries=5, delay=3):
 # Rabbit mq publisher
 def rabbitmq_publisher(event_type, data):
     try:
-        connection = RabubMQ_connection()
+        connection = RabbitMQ_connection()
         if connection is None:
             print("RabbitMQ connection not established. Cannot publish message.")
             

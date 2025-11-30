@@ -5,13 +5,12 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 
-
-
-
-
 load_dotenv()
 
 app = Flask(__name__)
+
+#(“under process”,”shipping” and “delivered” )
+
 
 # MongoDB Connection ------------------------------
 
@@ -110,11 +109,18 @@ def hello_world():
 def create_order():
     data = request.get_json()
     user_id = data.get("user_id")
-    item = data.get("item")
-    quantity = data.get("quantity")
-    orderCreation(user_id, item, quantity)
-    
-    return jsonify({"status": "Order created for user " + user_id})
+    items = data.get("items")
+
+    if items and isinstance(items, list):
+        order_items = items
+    else:
+        item = data.get("item")
+        quantity = data.get("quantity", 1)
+        order_items = [{"item": item, "quantity": quantity}]
+
+    result = orderCreation(user_id, order_items)
+
+    return jsonify({"status": "Order created for user " + user_id, "order_id": str(getattr(result, 'inserted_id', '')) , "items": order_items})
 
 
 # To update status of an order
@@ -138,19 +144,81 @@ def update_user_contact(user_id):
 
 # Helper functions --------------------------------
 
-# Helper function to simulate order creation
-def orderCreation(user_id, item, quantity):
-    print("Received order data at Order service:", user_id, item, quantity)
+# Function to get all orders
+def get_all_orders():
+    result = list(orders_collection.find())
+    return result
 
-# Helper function to simulate order status update
+# Function to get orders by status
+def get_orders_by_status(status):
+    result = list(orders_collection.find({"status": status}))
+    return result
+
+# Function to get number of orders
+def get_number_of_orders():
+    count = get_all_orders()
+    return len(count)
+
+# Function to find new order_id
+def find_new_order_id():
+    orders = get_all_orders()
+    if not orders:
+        return 1
+    max_id = max(order.get("order_id", 0) for order in orders)
+    return max_id + 1
+
+# Helper function to create an order
+def orderCreation(user_id, items, email, address):
+    results = orders_collection.insert_one({
+        "order_id": find_new_order_id(),
+        "user_id": user_id,
+        "items": items,
+        "user_email": email,
+        "user_address": address,
+        "status": "under process"
+    })
+    return results
+
+# Helper function to check if order exists
+def orderExists(order_id):
+    order = orders_collection.find_one({"order_id": int(order_id)})
+    return order
+
+# Helper function to see if user has any orders
+def userDidOrder(user_id):
+    orders = list(orders_collection.find({"user_id": user_id}))
+    return orders
+
+# Helper function to update order status
 def orderStatusUpdate(order_id, status):
-    print(f"Updated order {order_id} at Order service:", status)
+    valid_statuses = ["under process", "shipping", "delivered"]
+    if status not in valid_statuses:
+        return False
+    if orderExists(order_id):
+        orders_collection.update_one(
+            {"order_id": int(order_id)},
+            {"$set": {"status": status}}
+        )
+        return True
+    return False
 
-# Helper function to simulate user contact update
+# Helper function to update user contact info across all their orders
 def userContactUpdate(user_id, email, address):
-    print(f"Updated user {user_id} contact at Order service:", email, address)
+    update_fields = {}
+    if email:
+        update_fields["user_email"] = email
+    if address:
+        update_fields["user_address"] = address
+    
+    if update_fields and userDidOrder(user_id):
+        orders_collection.update_many(
+            {"user_id": user_id},
+            {"$set": update_fields}
+        )
+        return True
+    return False
 
 if __name__ == '__main__':
-    print("Microservices Order !!!!")
+    print("Microservices order !!!!")
     start_event_subscriber()
     app.run(host='0.0.0.0', port=5002, debug=True)
