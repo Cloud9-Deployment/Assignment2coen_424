@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Login to ACR
         uses: docker/login-action@v3
         with:
@@ -41,12 +41,3 @@ jobs:
         run: |
           docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/event:${{ github.sha }} -t coen314a2acr.azurecr.io/event:latest ./Server/event
           docker push coen314a2acr.azurecr.io/event --all-tags
-
-      - name: Update Container Apps
-        run: |
-          az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
-          az containerapp update --name user-v1 --resource-group rg-coen314-a2 --image coen314a2acr.azurecr.io/user-v1:${{ github.sha }}
-          az containerapp update --name user-v2 --resource-group rg-coen314-a2 --image coen314a2acr.azurecr.io/user-v2:${{ github.sha }}
-          az containerapp update --name order --resource-group rg-coen314-a2 --image coen314a2acr.azurecr.io/order:${{ github.sha }}
-          az containerapp update --name event --resource-group rg-coen314-a2 --image coen314a2acr.azurecr.io/event:${{ github.sha }}
-          az containerapp update --name api-gateway --resource-group rg-coen314-a2 --image coen314a2acr.azurecr.io/api-gateway:${{ github.sha }}
