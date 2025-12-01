@@ -174,7 +174,7 @@ def sync_user_address(user_id, new_address):
 
 # To greet
 @app.route('/', methods=['GET'])
-def hello_world():
+def greetings():
     return 'Order Service is running!'
 
 # To list all orders
