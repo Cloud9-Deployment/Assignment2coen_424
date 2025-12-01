@@ -3,13 +3,13 @@
 Automated Step-by-Step Test Script for Microservices
 COEN 424 Assignment 2
 
-This script tests all functionality step by step, waiting for user confirmation
-between each test to allow observation of the results.
+This script tests all functionality through the API Gateway only.
+Internal services (user-v1, user-v2, order, event) are not directly accessible
+from outside Azure Container Apps - all requests go through the API Gateway.
 
 Prerequisites:
-- All services must be running (user_V1, user_V2, order, event, api_gateway)
-- RabbitMQ must be running
-- MongoDB must be accessible
+- API Gateway must be deployed and accessible
+- All internal services must be running in Azure Container Apps
 """
 
 import requests
@@ -17,12 +17,9 @@ import json
 import time
 import sys
 
-# Configuration
-GATEWAY_URL = "http://localhost:8000"
-USER_V1_URL = "http://localhost:5000"
-USER_V2_URL = "http://localhost:5001"
-ORDER_URL = "http://localhost:5002"
-EVENT_URL = "http://localhost:5003"
+# Configuration - Only the API Gateway is externally accessible
+GATEWAY_URL = "https://api-gateway.whitetree-8d660c42.westus2.azurecontainerapps.io"
+
 # Test data storage
 created_user_id = None
 created_order_id = None
@@ -72,35 +69,29 @@ def wait_for_user():
     """Wait for user to press Enter to continue"""
     input(f"\n{Colors.YELLOW}Press Enter to continue to next step...{Colors.END}\n")
 
-def check_services():
-    """Check if all services are running"""
-    print_header("CHECKING SERVICES")
+def check_gateway():
+    """Check if the API Gateway is accessible"""
+    print_header("CHECKING API GATEWAY")
     
-    services = [
-        ("API Gateway", GATEWAY_URL),
-        ("User V1", USER_V1_URL),
-        ("User V2", USER_V2_URL),
-        ("Order Service", ORDER_URL),
-        ("Event Service", EVENT_URL),
-    ]
-    
-    all_running = True
-    for name, url in services:
-        try:
-            response = requests.get(f"{url}/", timeout=3)
-            if response.status_code == 200:
-                print_success(f"{name} is running at {url}")
-            else:
-                print_error(f"{name} returned status {response.status_code}")
-                all_running = False
-        except requests.exceptions.ConnectionError:
-            print_error(f"{name} is NOT running at {url}")
-            all_running = False
-        except Exception as e:
-            print_error(f"{name} error: {str(e)}")
-            all_running = False
-    
-    return all_running
+    try:
+        print_info(f"Testing connection to: {GATEWAY_URL}")
+        response = requests.get(f"{GATEWAY_URL}/", timeout=10)
+        if response.status_code == 200:
+            print_success(f"API Gateway is running!")
+            print_response(response)
+            return True
+        else:
+            print_error(f"API Gateway returned status {response.status_code}")
+            return False
+    except requests.exceptions.ConnectionError as e:
+        print_error(f"Cannot connect to API Gateway: {e}")
+        return False
+    except requests.exceptions.Timeout:
+        print_error("Connection timed out")
+        return False
+    except Exception as e:
+        print_error(f"Error: {str(e)}")
+        return False
 
 
 def test_gateway_status():
@@ -109,27 +100,45 @@ def test_gateway_status():
     
     print_step(1.1, "Getting gateway health check")
     print_request("GET", f"{GATEWAY_URL}/")
-    response = requests.get(f"{GATEWAY_URL}/")
+    response = requests.get(f"{GATEWAY_URL}/", timeout=10)
     print_response(response)
     
     wait_for_user()
     
-    print_step(1.2, "Getting detailed service status (may take a moment)")
+    print_step(1.2, "Getting detailed service status")
+    print_info("This checks connectivity to all internal services...")
     print_request("GET", f"{GATEWAY_URL}/status")
-    response = requests.get(f"{GATEWAY_URL}/status", timeout=15)
-    print_response(response)
+    try:
+        response = requests.get(f"{GATEWAY_URL}/status", timeout=30)
+        print_response(response)
+        
+        # Check if services are available
+        if "Unavailable" in response.text:
+            print_error("Some internal services are unavailable!")
+            print_info("Check Azure Container Apps logs for errors.")
+        else:
+            print_success("All internal services are responding!")
+    except requests.exceptions.Timeout:
+        print_error("Status check timed out - services may be slow or unavailable")
     
     wait_for_user()
     
     print_step(1.3, "Getting gateway configuration (Strangler Pattern)")
     print_request("GET", f"{GATEWAY_URL}/config")
-    response = requests.get(f"{GATEWAY_URL}/config")
+    response = requests.get(f"{GATEWAY_URL}/config", timeout=10)
     print_response(response)
     
-    config = response.json()
-    v1_pct = config['strangler_pattern']['v1_percentage']
-    v2_pct = config['strangler_pattern']['v2_percentage']
-    print_info(f"Current routing: {v1_pct}% to V1, {v2_pct}% to V2")
+    try:
+        config = response.json()
+        v1_pct = config['strangler_pattern']['v1_percentage']
+        v2_pct = config['strangler_pattern']['v2_percentage']
+        print_info(f"Current routing: {v1_pct}% to V1, {v2_pct}% to V2")
+        print_info(f"User V1 URL: {config['services'].get('user_v1', 'N/A')}")
+        print_info(f"User V2 URL: {config['services'].get('user_v2', 'N/A')}")
+        print_info(f"Order URL: {config['services'].get('order', 'N/A')}")
+        print_info(f"Event URL: {config['services'].get('event', 'N/A')}")
+    except Exception as e:
+        print_error(f"Could not parse config: {e}")
 
 
 def test_user_creation():
@@ -144,15 +153,20 @@ def test_user_creation():
         "delivery_address": "123 Test Street, Montreal, QC"
     }
     print_request("POST", f"{GATEWAY_URL}/user", user_data)
-    response = requests.post(f"{GATEWAY_URL}/user", json=user_data)
+    response = requests.post(f"{GATEWAY_URL}/user", json=user_data, timeout=15)
     print_response(response)
-    print_info("Note: Check which version (V1 or V2) handled this request in the service logs!")
+    
+    if response.status_code == 200:
+        print_success("User created successfully!")
+        print_info("Based on strangler pattern config, this went to V1 or V2")
+    else:
+        print_error(f"User creation failed with status {response.status_code}")
     
     wait_for_user()
     
     print_step(2.2, "Listing all users to find the created user")
     print_request("GET", f"{GATEWAY_URL}/users")
-    response = requests.get(f"{GATEWAY_URL}/users")
+    response = requests.get(f"{GATEWAY_URL}/users", timeout=15)
     print_response(response)
     
     # Try to extract user ID
@@ -162,7 +176,10 @@ def test_user_creation():
         if isinstance(users, list) and users:
             created_user_id = users[-1].get("user_account_id")
             print_success(f"Found user with ID: {created_user_id}")
-    except:
+        elif isinstance(users, str):
+            print_info("No users found or unexpected response format")
+            created_user_id = 1
+    except Exception as e:
         created_user_id = 1
         print_info(f"Assuming user ID: {created_user_id}")
 
@@ -175,8 +192,15 @@ def test_get_user():
     
     print_step(3.1, f"Getting details for user ID: {user_id}")
     print_request("GET", f"{GATEWAY_URL}/user/{user_id}")
-    response = requests.get(f"{GATEWAY_URL}/user/{user_id}")
+    response = requests.get(f"{GATEWAY_URL}/user/{user_id}", timeout=15)
     print_response(response)
+    
+    if response.status_code == 200:
+        print_success("User details retrieved!")
+    elif response.status_code == 404:
+        print_error("User not found")
+    else:
+        print_error(f"Failed with status {response.status_code}")
 
 
 def test_order_creation():
@@ -198,14 +222,19 @@ def test_order_creation():
         "delivery_address": "123 Test Street, Montreal, QC"
     }
     print_request("POST", f"{GATEWAY_URL}/order", order_data)
-    response = requests.post(f"{GATEWAY_URL}/order", json=order_data)
+    response = requests.post(f"{GATEWAY_URL}/order", json=order_data, timeout=15)
     print_response(response)
+    
+    if response.status_code == 200:
+        print_success("Order created successfully!")
+    else:
+        print_error(f"Order creation failed with status {response.status_code}")
     
     wait_for_user()
     
     print_step(4.2, "Listing all orders")
     print_request("GET", f"{GATEWAY_URL}/orders")
-    response = requests.get(f"{GATEWAY_URL}/orders")
+    response = requests.get(f"{GATEWAY_URL}/orders", timeout=15)
     print_response(response)
     
     # Try to extract order ID
@@ -232,7 +261,7 @@ def test_order_status_update():
         print_step(f"5.{i+1}", f"Updating order {order_id} status to: '{status}'")
         update_data = {"status": status}
         print_request("PUT", f"{GATEWAY_URL}/order/status/{order_id}", update_data)
-        response = requests.put(f"{GATEWAY_URL}/order/status/{order_id}", json=update_data)
+        response = requests.put(f"{GATEWAY_URL}/order/status/{order_id}", json=update_data, timeout=15)
         print_response(response)
         
         if i < len(statuses) - 1:
@@ -242,7 +271,7 @@ def test_order_status_update():
     
     print_step(5.4, "Verifying order status change")
     print_request("GET", f"{GATEWAY_URL}/order/{order_id}")
-    response = requests.get(f"{GATEWAY_URL}/order/{order_id}")
+    response = requests.get(f"{GATEWAY_URL}/order/{order_id}", timeout=15)
     print_response(response)
 
 
@@ -255,35 +284,39 @@ def test_data_synchronization():
     
     print_info("This test verifies that when a user updates their email/address,")
     print_info("the change is automatically synchronized to all their orders via RabbitMQ events.")
+    print_info("")
+    print_info("Architecture:")
+    print_info("  User Service → RabbitMQ → Order Service (updates all user's orders)")
+    print_info("               → RabbitMQ → Event Service (logs all events)")
     
     wait_for_user()
     
     # First, show current order state
     print_step(6.1, f"Current state of order {order_id} (BEFORE update)")
     print_request("GET", f"{GATEWAY_URL}/order/{order_id}")
-    response = requests.get(f"{GATEWAY_URL}/order/{order_id}")
+    response = requests.get(f"{GATEWAY_URL}/order/{order_id}", timeout=15)
     print_response(response)
     
     wait_for_user()
     
     # Update user email
     print_step(6.2, f"Updating email for user {user_id}")
-    new_email = "newemail_synchronized@example.com"
+    new_email = f"synced_{int(time.time())}@example.com"
     update_data = {"email": new_email}
     print_request("PUT", f"{GATEWAY_URL}/user/{user_id}/email", update_data)
-    response = requests.put(f"{GATEWAY_URL}/user/{user_id}/email", json=update_data)
+    response = requests.put(f"{GATEWAY_URL}/user/{user_id}/email", json=update_data, timeout=15)
     print_response(response)
     
     print_info("Event published to RabbitMQ: user.email_updated")
-    print_info("Waiting 2 seconds for synchronization...")
-    time.sleep(2)
+    print_info("Waiting 3 seconds for synchronization...")
+    time.sleep(3)
     
     wait_for_user()
     
     # Check if order was updated
     print_step(6.3, f"Checking order {order_id} (AFTER email update)")
     print_request("GET", f"{GATEWAY_URL}/order/{order_id}")
-    response = requests.get(f"{GATEWAY_URL}/order/{order_id}")
+    response = requests.get(f"{GATEWAY_URL}/order/{order_id}", timeout=15)
     print_response(response)
     
     try:
@@ -292,6 +325,7 @@ def test_data_synchronization():
             print_success("EMAIL SYNCHRONIZATION SUCCESSFUL!")
         else:
             print_info("Check if email was synchronized in the response above")
+            print_info(f"Expected: {new_email}")
     except:
         pass
     
@@ -299,22 +333,22 @@ def test_data_synchronization():
     
     # Update user address
     print_step(6.4, f"Updating address for user {user_id}")
-    new_address = "456 New Synchronized Address, Toronto, ON"
+    new_address = f"456 Synced Address {int(time.time())}, Toronto, ON"
     update_data = {"delivery_address": new_address}
     print_request("PUT", f"{GATEWAY_URL}/user/{user_id}/address", update_data)
-    response = requests.put(f"{GATEWAY_URL}/user/{user_id}/address", json=update_data)
+    response = requests.put(f"{GATEWAY_URL}/user/{user_id}/address", json=update_data, timeout=15)
     print_response(response)
     
     print_info("Event published to RabbitMQ: user.address_updated")
-    print_info("Waiting 2 seconds for synchronization...")
-    time.sleep(2)
+    print_info("Waiting 3 seconds for synchronization...")
+    time.sleep(3)
     
     wait_for_user()
     
     # Check if order was updated
     print_step(6.5, f"Checking order {order_id} (AFTER address update)")
     print_request("GET", f"{GATEWAY_URL}/order/{order_id}")
-    response = requests.get(f"{GATEWAY_URL}/order/{order_id}")
+    response = requests.get(f"{GATEWAY_URL}/order/{order_id}", timeout=15)
     print_response(response)
     
     try:
@@ -323,26 +357,39 @@ def test_data_synchronization():
             print_success("ADDRESS SYNCHRONIZATION SUCCESSFUL!")
         else:
             print_info("Check if address was synchronized in the response above")
+            print_info(f"Expected: {new_address}")
     except:
         pass
 
 
 def test_event_logging():
-    """Test 7: Check event service logs"""
+    """Test 7: Check event service logs (via Gateway)"""
     print_header("TEST 7: EVENT SERVICE LOGS")
     
-    print_step(7.1, "Getting all logged events")
-    print_request("GET", f"{GATEWAY_URL}/events")
-    response = requests.get(f"{GATEWAY_URL}/events")
-    print_response(response)
-    
-    print_info("These events were captured from RabbitMQ by the Event Service")
+    print_info("The Event Service subscribes to RabbitMQ and logs all user events.")
+    print_info("Accessing event logs through the API Gateway...")
     
     wait_for_user()
     
-    print_step(7.2, "Getting event statistics")
-    print_request("GET", f"{EVENT_URL}/events/stats")
-    response = requests.get(f"{EVENT_URL}/events/stats")
+    print_step(7.1, "Getting all logged events")
+    print_request("GET", f"{GATEWAY_URL}/events")
+    response = requests.get(f"{GATEWAY_URL}/events", timeout=15)
+    print_response(response)
+    
+    try:
+        data = response.json()
+        total = data.get("total_events", 0)
+        print_info(f"Total events logged: {total}")
+        if total > 0:
+            print_success("Event service is capturing RabbitMQ messages!")
+    except:
+        pass
+    
+    wait_for_user()
+    
+    print_step(7.2, "Getting event count")
+    print_request("GET", f"{GATEWAY_URL}/events/count")
+    response = requests.get(f"{GATEWAY_URL}/events/count", timeout=15)
     print_response(response)
 
 
@@ -351,27 +398,43 @@ def test_strangler_pattern():
     print_header("TEST 8: STRANGLER PATTERN ROUTING")
     
     print_info("The strangler pattern routes P% of requests to V1 and (100-P)% to V2")
-    print_info("We'll make multiple requests and observe which service handles them")
-    print_info("Check the USER SERVICE CONSOLE LOGS to see which version handles each request!")
+    print_info("We'll make multiple requests - check Azure logs to see routing distribution")
+    
+    # Get current config
+    print_step(8.1, "Getting current strangler pattern configuration")
+    print_request("GET", f"{GATEWAY_URL}/config")
+    response = requests.get(f"{GATEWAY_URL}/config", timeout=10)
+    print_response(response)
+    
+    try:
+        config = response.json()
+        v1_pct = config['strangler_pattern']['v1_percentage']
+        v2_pct = config['strangler_pattern']['v2_percentage']
+        print_info(f"Expected distribution: ~{v1_pct}% to V1, ~{v2_pct}% to V2")
+    except:
+        pass
     
     wait_for_user()
     
-    print_step(8.1, "Making 10 requests to observe routing distribution")
-    
-    v1_count = 0
-    v2_count = 0
+    print_step(8.2, "Making 10 user listing requests")
+    print_info("Each request is routed to V1 or V2 based on the configured percentage")
+    print_info("Check API Gateway logs in Azure to see actual routing decisions\n")
     
     for i in range(10):
-        print(f"\n  Request {i+1}/10...")
-        response = requests.get(f"{GATEWAY_URL}/users")
-        # The actual routing is logged in the gateway console
-        print(f"  Response received (check gateway logs for routing info)")
+        print(f"  Request {i+1}/10...", end=" ")
+        try:
+            response = requests.get(f"{GATEWAY_URL}/users", timeout=15)
+            if response.status_code == 200:
+                print(f"{Colors.GREEN}OK{Colors.END}")
+            else:
+                print(f"{Colors.RED}Status {response.status_code}{Colors.END}")
+        except Exception as e:
+            print(f"{Colors.RED}Error: {e}{Colors.END}")
         time.sleep(0.5)
     
-    print_info("\nCheck the API Gateway console output to see the routing distribution!")
-    print_info("You should see messages like:")
-    print_info("  [Strangler] Routing to User V1 (random: X, threshold: Y%)")
-    print_info("  [Strangler] Routing to User V2 (random: X, threshold: Y%)")
+    print_info("\nTo see routing decisions, check Azure Container Apps logs:")
+    print_info("  az containerapp logs show --name api-gateway --resource-group rg-coen314-a2")
+    print_info("Look for: [Strangler] Routing to User V1/V2...")
 
 
 def test_batch_operations():
@@ -384,22 +447,34 @@ def test_batch_operations():
     wait_for_user()
     
     print_step(9.1, "Creating multiple users in batch")
+    timestamp = int(time.time())
     batch_data = {
         "users": [
-            {"email": "batch1@example.com", "delivery_address": "Batch Address 1"},
-            {"email": "batch2@example.com", "delivery_address": "Batch Address 2"},
-            {"email": "batch3@example.com", "delivery_address": "Batch Address 3"}
+            {"email": f"batch1_{timestamp}@example.com", "delivery_address": "Batch Address 1"},
+            {"email": f"batch2_{timestamp}@example.com", "delivery_address": "Batch Address 2"},
+            {"email": f"batch3_{timestamp}@example.com", "delivery_address": "Batch Address 3"}
         ]
     }
     print_request("POST", f"{GATEWAY_URL}/users/batch", batch_data)
-    response = requests.post(f"{GATEWAY_URL}/users/batch", json=batch_data)
+    response = requests.post(f"{GATEWAY_URL}/users/batch", json=batch_data, timeout=20)
     print_response(response)
+    
+    try:
+        data = response.json()
+        created = data.get("total_created", 0)
+        errors = data.get("total_errors", 0)
+        if created > 0:
+            print_success(f"Batch creation successful! Created {created} users")
+        if errors > 0:
+            print_error(f"Had {errors} errors during batch creation")
+    except:
+        pass
     
     wait_for_user()
     
     print_step(9.2, "Listing all users after batch creation")
     print_request("GET", f"{GATEWAY_URL}/users")
-    response = requests.get(f"{GATEWAY_URL}/users")
+    response = requests.get(f"{GATEWAY_URL}/users", timeout=15)
     print_response(response)
 
 
@@ -411,8 +486,10 @@ def test_orders_by_status():
     
     for i, status in enumerate(statuses):
         print_step(f"10.{i+1}", f"Getting orders with status: '{status}'")
-        print_request("GET", f"{GATEWAY_URL}/orders/status/{status}")
-        response = requests.get(f"{GATEWAY_URL}/orders/status/{status}")
+        # URL encode the status (spaces become %20)
+        encoded_status = status.replace(" ", "%20")
+        print_request("GET", f"{GATEWAY_URL}/orders/status/{encoded_status}")
+        response = requests.get(f"{GATEWAY_URL}/orders/status/{encoded_status}", timeout=15)
         print_response(response)
         
         if i < len(statuses) - 1:
@@ -423,27 +500,31 @@ def run_all_tests():
     """Run all tests in sequence"""
     print_header("MICROSERVICES AUTOMATED TEST SUITE")
     print(f"{Colors.BOLD}COEN 424 - Assignment 2{Colors.END}")
-    print(f"\nThis script will test all microservice functionality step by step.")
+    print(f"\nThis script tests all microservice functionality through the API Gateway.")
     print("You will be prompted to press Enter between each step.")
-    print("\nMake sure all services are running:")
-    print("  - RabbitMQ (localhost:5672)")
-    print("  - User V1 (localhost:5000)")
-    print("  - User V2 (localhost:5001)")
-    print("  - Order Service (localhost:5002)")
-    print("  - Event Service (localhost:5003)")
-    print("  - API Gateway (localhost:8000)")
+    print(f"\n{Colors.BOLD}API Gateway URL:{Colors.END} {GATEWAY_URL}")
+    print(f"\n{Colors.BOLD}Architecture:{Colors.END}")
+    print("  ┌─────────────────┐")
+    print("  │   API Gateway   │  ← External (you are here)")
+    print("  └────────┬────────┘")
+    print("           │")
+    print("  ┌────────┴────────┐")
+    print("  │  Internal Only  │")
+    print("  ├─────────────────┤")
+    print("  │ User V1 & V2    │")
+    print("  │ Order Service   │")
+    print("  │ Event Service   │")
+    print("  │ RabbitMQ        │")
+    print("  │ MongoDB Atlas   │")
+    print("  └─────────────────┘")
     
     wait_for_user()
     
-    # Check services first
-    if not check_services():
-        print_error("\nSome services are not running. Please start all services and try again.")
-        print_info("\nTo start services locally, run in separate terminals:")
-        print("  Terminal 1: python user_V1.py")
-        print("  Terminal 2: python user_V2.py")
-        print("  Terminal 3: python order.py")
-        print("  Terminal 4: python event.py")
-        print("  Terminal 5: python api_gateway.py")
+    # Check gateway first
+    if not check_gateway():
+        print_error("\nAPI Gateway is not accessible!")
+        print_info("Make sure the Azure Container Apps are running.")
+        print_info(f"URL: {GATEWAY_URL}")
         return
     
     wait_for_user()
@@ -500,85 +581,108 @@ def run_all_tests():
         print("  ✓ Event-driven data synchronization")
         print("  ✓ RabbitMQ message passing")
         print("  ✓ MongoDB data persistence")
+        print("  ✓ Azure Container Apps deployment")
         
     except KeyboardInterrupt:
         print(f"\n\n{Colors.YELLOW}Test interrupted by user.{Colors.END}")
     except Exception as e:
         print_error(f"Test failed with error: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 
 def run_quick_test():
     """Run a quick automated test without waiting for user input"""
     print_header("QUICK AUTOMATED TEST")
+    print(f"Gateway URL: {GATEWAY_URL}\n")
     
-    if not check_services():
-        print_error("Services not running!")
+    if not check_gateway():
+        print_error("API Gateway not accessible!")
         return False
     
     tests_passed = 0
     tests_failed = 0
     
-    # Test 1: Create user
-    print("\n[1/6] Creating user...")
+    # Test 1: Check status
+    print("\n[1/7] Checking service status...")
+    try:
+        response = requests.get(f"{GATEWAY_URL}/status", timeout=30)
+        if response.status_code == 200:
+            if "Unavailable" not in response.text:
+                print_success("All services connected")
+                tests_passed += 1
+            else:
+                print_error("Some services unavailable")
+                print(response.text)
+                tests_failed += 1
+        else:
+            print_error(f"Status check failed: {response.status_code}")
+            tests_failed += 1
+    except Exception as e:
+        print_error(f"Error: {e}")
+        tests_failed += 1
+    
+    # Test 2: Create user
+    print("\n[2/7] Creating user...")
     try:
         response = requests.post(f"{GATEWAY_URL}/user", json={
-            "email": "quicktest@example.com",
+            "email": f"quicktest_{int(time.time())}@example.com",
             "delivery_address": "Quick Test Address"
-        })
+        }, timeout=15)
         if response.status_code == 200:
             print_success("User created")
             tests_passed += 1
         else:
-            print_error("User creation failed")
+            print_error(f"User creation failed: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
         tests_failed += 1
     
-    # Test 2: List users
-    print("\n[2/6] Listing users...")
+    # Test 3: List users
+    print("\n[3/7] Listing users...")
     try:
-        response = requests.get(f"{GATEWAY_URL}/users")
+        response = requests.get(f"{GATEWAY_URL}/users", timeout=15)
         if response.status_code == 200:
             print_success("Users listed")
             tests_passed += 1
         else:
-            print_error("Failed to list users")
+            print_error(f"Failed to list users: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
         tests_failed += 1
     
-    # Test 3: Create order
-    print("\n[3/6] Creating order...")
+    # Test 4: Create order
+    print("\n[4/7] Creating order...")
     try:
         response = requests.post(f"{GATEWAY_URL}/order", json={
             "user_id": "1",
             "items": [{"item": "Test Item", "quantity": 1}],
             "email": "quicktest@example.com",
             "delivery_address": "Quick Test Address"
-        })
+        }, timeout=15)
         if response.status_code == 200:
             print_success("Order created")
             tests_passed += 1
         else:
-            print_error("Order creation failed")
+            print_error(f"Order creation failed: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
         tests_failed += 1
     
-    # Test 4: Update user email (triggers sync)
-    print("\n[4/6] Updating user email (testing sync)...")
+    # Test 5: Update user email (triggers sync)
+    print("\n[5/7] Updating user email (testing sync)...")
     try:
         response = requests.put(f"{GATEWAY_URL}/user/1/email", json={
-            "email": "synced@example.com"
-        })
+            "email": f"synced_{int(time.time())}@example.com"
+        }, timeout=15)
         if response.status_code == 200:
             print_success("Email updated")
             tests_passed += 1
         else:
-            print_error("Email update failed")
+            print_error(f"Email update failed: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
@@ -586,34 +690,34 @@ def run_quick_test():
     
     time.sleep(2)  # Wait for sync
     
-    # Test 5: Check events
-    print("\n[5/6] Checking events...")
+    # Test 6: Check events
+    print("\n[6/7] Checking events...")
     try:
-        response = requests.get(f"{GATEWAY_URL}/events")
+        response = requests.get(f"{GATEWAY_URL}/events", timeout=15)
         if response.status_code == 200:
             print_success("Events retrieved")
             tests_passed += 1
         else:
-            print_error("Failed to get events")
+            print_error(f"Failed to get events: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
         tests_failed += 1
     
-    # Test 6: Batch create (V2 feature)
-    print("\n[6/6] Testing batch creation (V2)...")
+    # Test 7: Batch create (V2 feature)
+    print("\n[7/7] Testing batch creation (V2)...")
     try:
         response = requests.post(f"{GATEWAY_URL}/users/batch", json={
             "users": [
-                {"email": "batch_quick1@example.com", "delivery_address": "Addr 1"},
-                {"email": "batch_quick2@example.com", "delivery_address": "Addr 2"}
+                {"email": f"batch_q1_{int(time.time())}@example.com", "delivery_address": "Addr 1"},
+                {"email": f"batch_q2_{int(time.time())}@example.com", "delivery_address": "Addr 2"}
             ]
-        })
+        }, timeout=20)
         if response.status_code == 200:
             print_success("Batch creation successful")
             tests_passed += 1
         else:
-            print_error("Batch creation failed")
+            print_error(f"Batch creation failed: {response.status_code}")
             tests_failed += 1
     except Exception as e:
         print_error(f"Error: {e}")
@@ -621,14 +725,21 @@ def run_quick_test():
     
     # Summary
     print_header("QUICK TEST RESULTS")
-    print(f"Passed: {tests_passed}/6")
-    print(f"Failed: {tests_failed}/6")
+    total = tests_passed + tests_failed
+    print(f"Passed: {tests_passed}/{total}")
+    print(f"Failed: {tests_failed}/{total}")
+    
+    if tests_failed == 0:
+        print_success("\nAll tests passed!")
+    else:
+        print_error(f"\n{tests_failed} test(s) failed")
     
     return tests_failed == 0
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--quick":
-        run_quick_test()
+        success = run_quick_test()
+        sys.exit(0 if success else 1)
     else:
         run_all_tests()
