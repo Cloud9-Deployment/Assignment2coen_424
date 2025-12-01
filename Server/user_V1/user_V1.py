@@ -14,16 +14,15 @@ app = Flask(__name__)
 # MongoDB Connection ------------------------------
 
 users_collection = None
-def connect_to_mongodb():
-    global users_collection
-    try:
-        username = quote_plus(os.getenv('MONGODB_USER'))
-        password = quote_plus(os.getenv('MONGODB_PASSWORD'))
-        
-        # Use proper MongoDB Atlas connection string
+
+# Connect at module level (FIXED - was in __main__ before)
+try:
+    username = quote_plus(os.getenv('MONGODB_USER', ''))
+    password = quote_plus(os.getenv('MONGODB_PASSWORD', ''))
+    
+    if username and password:
         mongo_uri = f"mongodb+srv://{username}:{password}@cluster0.4agn1ar.mongodb.net/?retryWrites=true&w=majority"
 
-        # Add tlsCAFile parameter with certifi's CA bundle
         client = MongoClient(
             mongo_uri,
             tlsCAFile=certifi.where(),
@@ -31,22 +30,17 @@ def connect_to_mongodb():
             connectTimeoutMS=10000
         )
         
-        # Test the connection
         client.admin.command('ping')
         
         db = client[os.getenv('MONGODB_USER_DB', 'user_database')]
         users_collection = db['users']
         print("✓ Connected to MongoDB - User Database (V1)")
-    except Exception as e:
-        print(f"✗ MongoDB Connection Error: {e}")
-        print("Make sure:")
-        print("  1. Your MongoDB Atlas cluster is running")
-        print("  2. Credentials are correct (MONGODB_USER and MONGODB_PASSWORD)")
-        print("  3. Your IP address is whitelisted in MongoDB Atlas")
-        print("  4. You have internet connection")
+    else:
+        print("✗ MongoDB credentials not set")
+except Exception as e:
+    print(f"✗ MongoDB Connection Error: {e}")
 
 #RabbitMQ Connection ------------------------------
-#Main function to establish RabbitMQ connection
 def RabbitMQ_connection():
     rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
     rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
@@ -68,7 +62,6 @@ def RabbitMQ_connection():
         return None
 
 
-#Test the RabbitMQ connection
 def wait_for_rabbitmq(max_retries=5, delay=3):
     """Wait for RabbitMQ to be available"""
     for attempt in range(max_retries):
@@ -88,7 +81,6 @@ def wait_for_rabbitmq(max_retries=5, delay=3):
     return False
 
 
-# RabbitMQ publisher
 def rabbitmq_publisher(event_type, data):
     """Publish events to RabbitMQ for synchronization"""
     try:
@@ -129,15 +121,15 @@ def rabbitmq_publisher(event_type, data):
 
 #Endpoints ----------------------------------
 
-# To greet
 @app.route('/', methods=['GET'])
 def entry():
     results = "User V1 Service is running!"
     return results
 
-# To list all users
 @app.route('/users', methods=['GET'])
 def list_users():
+    if users_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     users = get_all_users()
     if not users:
         return jsonify({"status": "User V1 ZERO user found"})
@@ -146,9 +138,10 @@ def list_users():
             user["_id"] = str(user["_id"])  
         return jsonify({"status": users})
 
-# To see user details by user_account_id
 @app.route('/user/<user_account_id>', methods=['GET'])
 def see_user(user_account_id):
+    if users_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     user = users_collection.find_one({"user_account_id": int(user_account_id)})
     if user:
         return jsonify({
@@ -158,15 +151,15 @@ def see_user(user_account_id):
     else:
         return jsonify({"status": "User V1 not found with id " + user_account_id}), 404
 
-# To create a user
 @app.route('/user', methods=['POST'])
 def create_user():
+    if users_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     email = data.get("email")
     address = data.get("delivery_address")
     result = userCreation(email, address)
     
-    # Publish user created event
     rabbitmq_publisher("created", {
         "user_account_id": result,
         "email": email,
@@ -175,9 +168,10 @@ def create_user():
     
     return jsonify({"status": "User V1 created " + email})
 
-# Update email of the user by user_account_id
 @app.route('/user/<user_account_id>/email', methods=['PUT'])
 def update_user_by_email(user_account_id):
+    if users_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     new_email = data.get("email")
     
@@ -188,7 +182,6 @@ def update_user_by_email(user_account_id):
         address = user.get("delivery_address")
         userUpdate(user["_id"], int(user_account_id), new_email, address)
         
-        # PUBLISH EVENT FOR SYNCHRONIZATION - This is the key fix!
         rabbitmq_publisher("email_updated", {
             "user_account_id": int(user_account_id),
             "old_email": old_email,
@@ -204,9 +197,10 @@ def update_user_by_email(user_account_id):
     else:
         return jsonify({"status": "User V1 not found with id " + user_account_id + " to change " + new_email}), 404
 
-# Update address of the user by user_account_id
 @app.route('/user/<user_account_id>/address', methods=['PUT'])
 def update_user_by_address(user_account_id):
+    if users_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     new_address = data.get("delivery_address")
     
@@ -217,7 +211,6 @@ def update_user_by_address(user_account_id):
         old_address = user.get("delivery_address")
         userUpdate(user["_id"], int(user_account_id), email, new_address)
         
-        # PUBLISH EVENT FOR SYNCHRONIZATION - This is the key fix!
         rabbitmq_publisher("address_updated", {
             "user_account_id": int(user_account_id),
             "email": email,
@@ -231,17 +224,14 @@ def update_user_by_address(user_account_id):
 
 # Helper functions --------------------------------
 
-# Function to get all users
 def get_all_users():
     result = list(users_collection.find())
     return result
 
-# Function to get number of users
 def get_number_of_users():
     users = get_all_users()
     return len(users)
 
-# Function to find new user_account_id
 def find_new_user_id():
     users = get_all_users()
     if not users:
@@ -249,7 +239,6 @@ def find_new_user_id():
     max_id = max(user.get("user_account_id", 0) for user in users)
     return max_id + 1
 
-# Helper function for the user creation
 def userCreation(email, address):
     new_id = find_new_user_id()
     users_collection.insert_one({
@@ -259,7 +248,6 @@ def userCreation(email, address):
     })
     return new_id
 
-# Helper function for the user update
 def userUpdate(object_id, user_account_id, email, address):
     results = users_collection.update_one(
         {"_id": object_id},
@@ -273,7 +261,5 @@ def userUpdate(object_id, user_account_id, email, address):
 
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
-    connect_to_mongodb()
-    print("MongoDB connection established.")
     wait_for_rabbitmq()
     app.run(host='0.0.0.0', port=5000, debug=True)

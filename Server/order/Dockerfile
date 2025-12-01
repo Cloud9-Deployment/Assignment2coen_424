@@ -2,16 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy service file
 COPY order.py .
 COPY .env* ./
 
-# Expose port
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 5002
 
-# Run the service
-CMD ["python", "order.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5002", "--workers", "2", "--timeout", "120", "order:app"]
