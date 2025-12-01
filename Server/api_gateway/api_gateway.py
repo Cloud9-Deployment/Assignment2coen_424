@@ -343,11 +343,5 @@ def event_count():
         return jsonify({"error": f"Service unavailable: {str(e)}"}), 503
 
 if __name__ == '__main__':
-    print("=" * 50)
-    print("API GATEWAY STARTING")
-    print("=" * 50)
-    print(f"Strangler Pattern: {'Enabled' if config['strangler_pattern']['enabled'] else 'Disabled'}")
-    print(f"V1 Traffic: {config['strangler_pattern']['v1_percentage']}%")
-    print(f"V2 Traffic: {config['strangler_pattern']['v2_percentage']}%")
-    print("=" * 50)
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    config = load_config()
+    app.run(host='0.0.0.0', port=8000, debug=False)
