@@ -145,7 +145,7 @@ def start_event_subscriber():
     return thread
 
 
-# Synchronization helper functions --------------------------------
+# Synchronization helper function --------------------------------
 
 def sync_user_email(user_id, new_email):
     """Synchronize user email across all their orders"""
