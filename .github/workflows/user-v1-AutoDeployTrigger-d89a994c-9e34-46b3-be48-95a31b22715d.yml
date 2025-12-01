@@ -1,0 +1,49 @@
+name: Trigger auto deployment for user-v1
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ master ]
+    paths:
+    - '**'
+    - '.github/workflows/user-v1-AutoDeployTrigger-d89a994c-9e34-46b3-be48-95a31b22715d.yml'
+
+  # Allow manual trigger 
+  workflow_dispatch:      
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions: 
+      id-token: write #This is required for requesting the OIDC JWT Token
+      contents: read #Required when GH token is used to authenticate with private repo
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.USERV1_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.USERV1_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.USERV1_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}/Server/user_V1
+          _dockerfilePathKey_: _dockerfilePath_
+          _targetLabelKey_: _targetLabel_
+          registryUrl: coen314a2acr.azurecr.io
+          registryUsername: ${{ secrets.USERV1_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.USERV1_REGISTRY_PASSWORD }}
+          containerAppName: user-v1
+          resourceGroup: rg-coen314-a2
+          imageToBuild: coen314a2acr.azurecr.io/user-v1:${{ github.sha }}
+          _buildArgumentsKey_: |
+            _buildArgumentsValues_
+
+
