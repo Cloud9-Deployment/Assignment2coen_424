@@ -117,7 +117,7 @@ def hello_world():
 @app.route('/status', methods=['GET'])
 def detailed_status():
     """Detailed status check - checks all services (may be slow)"""
-    response = "\n=== API Gateway Status ===\n"
+    response = "\n=== API Gateway Status joooo ===\n"
     response += f"Strangler Pattern: {'Enabled' if config['strangler_pattern']['enabled'] else 'Disabled'}\n"
     response += f"V1 Traffic: {config['strangler_pattern']['v1_percentage']}%\n"
     response += f"V2 Traffic: {config['strangler_pattern']['v2_percentage']}%\n"
