@@ -3,6 +3,10 @@ import json
 from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+import pika
+import ssl
+import threading
+import time
 
 load_dotenv()
 
@@ -12,27 +16,49 @@ app = Flask(__name__)
 events_log = []
 
 # RabbitMQ Subscriber
+
+def get_rabbitmq_connection():
+    """Create RabbitMQ connection using RABBITMQ_URL (CloudAMQP compatible)"""
+    rabbitmq_url = os.getenv('RABBITMQ_URL')
+    
+    if not rabbitmq_url:
+        print("✗ RABBITMQ_URL not set")
+        return None
+    
+    try:
+        # Use URLParameters for CloudAMQP (handles amqps:// SSL connections)
+        params = pika.URLParameters(rabbitmq_url)
+        params.socket_timeout = 10
+        params.connection_attempts = 3
+        
+        connection = pika.BlockingConnection(params)
+        print("✓ Connected to RabbitMQ (CloudAMQP)")
+        return connection
+    except Exception as e:
+        print(f"✗ RabbitMQ Connection Error: {e}")
+        return None
+
+
 def start_event_subscriber():
     """Start RabbitMQ event subscriber in a separate thread"""
-    import threading
-    import pika
 
     def subscriber():
         while True:
             try:
-                rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
-                rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
-                rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
-                rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'guest')
+                rabbitmq_url = os.getenv('RABBITMQ_URL')
+                if not rabbitmq_url:
+                    print("✗ RABBITMQ_URL not set, cannot start subscriber")
+                    time.sleep(10)
+                    continue
 
-                credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
-                parameters = pika.ConnectionParameters(
-                    host=rabbitmq_host,
-                    port=rabbitmq_port,
-                    credentials=credentials
-                )
+                # Use URLParameters for CloudAMQP
+                params = pika.URLParameters(rabbitmq_url)
+                params.socket_timeout = 10
+                params.connection_attempts = 3
+                params.heartbeat = 600
+                params.blocked_connection_timeout = 300
 
-                connection = pika.BlockingConnection(parameters)
+                connection = pika.BlockingConnection(params)
                 channel = connection.channel()
 
                 # Declare exchange and queue
@@ -87,7 +113,6 @@ def start_event_subscriber():
             except Exception as e:
                 print(f"RabbitMQ subscriber error: {e}")
                 print("Retrying in 5 seconds...")
-                import time
                 time.sleep(5)
 
     thread = threading.Thread(target=subscriber, daemon=True)
@@ -97,12 +122,10 @@ def start_event_subscriber():
 
 # Endpoints ----------------------------------
 
-# To verify event service is working
 @app.route('/', methods=['GET'])
 def hello_world():
     return 'Event Service is running!'
 
-# To list all events
 @app.route('/events', methods=['GET'])
 def list_events():
     if not events_log:
@@ -114,7 +137,6 @@ def list_events():
             "total_events": len(events_log)
         })
 
-# To get events by type
 @app.route('/events/type/<event_type>', methods=['GET'])
 def list_events_by_type(event_type):
     filtered = [e for e in events_log if e.get("event_type") == event_type]
@@ -125,12 +147,10 @@ def list_events_by_type(event_type):
         "total": len(filtered)
     })
 
-# To get event count
 @app.route('/events/count', methods=['GET'])
 def event_count():
     return jsonify({"total_events": len(events_log)})
 
-# To get event statistics
 @app.route('/events/stats', methods=['GET'])
 def event_stats():
     stats = {}
@@ -142,7 +162,6 @@ def event_stats():
         "by_type": stats
     })
 
-# To clear events log
 @app.route('/events/clear', methods=['POST'])
 def clear_events():
     global events_log
@@ -150,10 +169,24 @@ def clear_events():
     events_log = []
     return jsonify({"status": f"Events log cleared. {count} events removed."})
 
+# RabbitMQ status endpoint
+@app.route('/rabbitmq/status', methods=['GET'])
+def rabbitmq_status():
+    """Check RabbitMQ connection status"""
+    try:
+        connection = get_rabbitmq_connection()
+        if connection and connection.is_open:
+            connection.close()
+            return jsonify({"status": "connected", "message": "RabbitMQ is connected"})
+        else:
+            return jsonify({"status": "disconnected", "message": "RabbitMQ connection failed"}), 503
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 503
+
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("Event Service ACTIVATE!!!!")
+    print("Event Service STARTING")
     print("=" * 50)
     start_event_subscriber()
     app.run(host='0.0.0.0', port=5003, debug=True)

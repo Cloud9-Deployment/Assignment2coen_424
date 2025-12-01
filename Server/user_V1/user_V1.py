@@ -5,6 +5,7 @@ import certifi
 import os
 from dotenv import load_dotenv
 import pika
+import ssl
 import time
 
 load_dotenv()
@@ -15,7 +16,7 @@ app = Flask(__name__)
 
 users_collection = None
 
-# Connect at module level (FIXED - was in __main__ before)
+# Connect at module level
 try:
     username = quote_plus(os.getenv('MONGODB_USER', ''))
     password = quote_plus(os.getenv('MONGODB_PASSWORD', ''))
@@ -40,23 +41,25 @@ try:
 except Exception as e:
     print(f"✗ MongoDB Connection Error: {e}")
 
-#RabbitMQ Connection ------------------------------
-def RabbitMQ_connection():
-    rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
-    rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
-    rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
-    rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'guest')
+# RabbitMQ Connection ------------------------------
 
-    credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
-    parameters = pika.ConnectionParameters(
-        host=rabbitmq_host,
-        port=rabbitmq_port,
-        credentials=credentials)
-
+def get_rabbitmq_connection():
+    """Create RabbitMQ connection using RABBITMQ_URL (CloudAMQP compatible)"""
+    rabbitmq_url = os.getenv('RABBITMQ_URL')
+    
+    if not rabbitmq_url:
+        print("✗ RABBITMQ_URL not set")
+        return None
+    
     try:
-        rabbitmq_connection = pika.BlockingConnection(parameters)
-        print("✓ Connected to RabbitMQ")
-        return rabbitmq_connection
+        # Use URLParameters for CloudAMQP (handles amqps:// SSL connections)
+        params = pika.URLParameters(rabbitmq_url)
+        params.socket_timeout = 10
+        params.connection_attempts = 3
+        
+        connection = pika.BlockingConnection(params)
+        print("✓ Connected to RabbitMQ (CloudAMQP)")
+        return connection
     except Exception as e:
         print(f"✗ RabbitMQ Connection Error: {e}")
         return None
@@ -66,7 +69,7 @@ def wait_for_rabbitmq(max_retries=5, delay=3):
     """Wait for RabbitMQ to be available"""
     for attempt in range(max_retries):
         try:
-            connection = RabbitMQ_connection()
+            connection = get_rabbitmq_connection()
             if connection and connection.is_open:
                 print("✓ RabbitMQ is ready")
                 connection.close()
@@ -78,22 +81,25 @@ def wait_for_rabbitmq(max_retries=5, delay=3):
             print(f"Retrying in {delay} seconds...")
             time.sleep(delay)
     
+    print("✗ RabbitMQ not available, continuing without it")
     return False
 
 
 def rabbitmq_publisher(event_type, data):
     """Publish events to RabbitMQ for synchronization"""
     try:
-        connection = RabbitMQ_connection()
+        connection = get_rabbitmq_connection()
         if connection is None:
-            print("RabbitMQ connection not established. Cannot publish message.")
+            print("RabbitMQ connection not established. Skipping publish.")
             return False
             
         channel = connection.channel()
 
-        channel.exchange_declare(exchange='user_events', 
-                                exchange_type='topic', 
-                                durable=True)
+        channel.exchange_declare(
+            exchange='user_events', 
+            exchange_type='topic', 
+            durable=True
+        )
 
         event = {
             "event_type": event_type,
@@ -119,12 +125,11 @@ def rabbitmq_publisher(event_type, data):
         return False
 
 
-#Endpoints ----------------------------------
+# Endpoints ----------------------------------
 
 @app.route('/', methods=['GET'])
 def entry():
-    results = "User V1 Service is running!"
-    return results
+    return "User V1 Service is running!"
 
 @app.route('/users', methods=['GET'])
 def list_users():
@@ -260,6 +265,8 @@ def userUpdate(object_id, user_account_id, email, address):
     return results
 
 if __name__ == '__main__':
-    print("Microservices user V1 ACTIVATE!!!!")
+    print("=" * 50)
+    print("User V1 Service STARTING")
+    print("=" * 50)
     wait_for_rabbitmq()
     app.run(host='0.0.0.0', port=5000, debug=True)

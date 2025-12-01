@@ -5,6 +5,10 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 import json
+import pika
+import ssl
+import threading
+import time
 
 load_dotenv()
 
@@ -17,54 +21,73 @@ app = Flask(__name__)
 orders_collection = None
 
 try:
-    username = quote_plus(os.getenv('MONGODB_USER'))
-    password = quote_plus(os.getenv('MONGODB_PASSWORD'))
+    username = quote_plus(os.getenv('MONGODB_USER', ''))
+    password = quote_plus(os.getenv('MONGODB_PASSWORD', ''))
 
-    mongo_uri = f"mongodb+srv://{username}:{password}@cluster0.4agn1ar.mongodb.net/?retryWrites=true&w=majority"
+    if username and password:
+        mongo_uri = f"mongodb+srv://{username}:{password}@cluster0.4agn1ar.mongodb.net/?retryWrites=true&w=majority"
 
-    client = MongoClient(
-        mongo_uri,
-        tlsCAFile=certifi.where(),
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=10000
-    )
+        client = MongoClient(
+            mongo_uri,
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000
+        )
 
-    client.admin.command('ping')
+        client.admin.command('ping')
 
-    db = client[os.getenv('MONGODB_ORDER_DB', 'order_database')]
-    orders_collection = db['orders']
-    print("✓ Connected to MongoDB - Order Database")
+        db = client[os.getenv('MONGODB_ORDER_DB', 'order_database')]
+        orders_collection = db['orders']
+        print("✓ Connected to MongoDB - Order Database")
+    else:
+        print("✗ MongoDB credentials not set")
 except Exception as e:
     print(f"✗ MongoDB Connection Error: {e}")
-    print("Make sure:")
-    print("  1. Your MongoDB Atlas cluster is running")
-    print("  2. Credentials are correct (MONGODB_USER and MONGODB_PASSWORD)")
-    print("  3. Your IP address is whitelisted in MongoDB Atlas")
-    print("  4. You have internet connection")
 
-#RabbitMQ Connection ------------------------------
+# RabbitMQ Connection ------------------------------
+
+def get_rabbitmq_connection():
+    """Create RabbitMQ connection using RABBITMQ_URL (CloudAMQP compatible)"""
+    rabbitmq_url = os.getenv('RABBITMQ_URL')
+    
+    if not rabbitmq_url:
+        print("✗ RABBITMQ_URL not set")
+        return None
+    
+    try:
+        # Use URLParameters for CloudAMQP (handles amqps:// SSL connections)
+        params = pika.URLParameters(rabbitmq_url)
+        params.socket_timeout = 10
+        params.connection_attempts = 3
+        
+        connection = pika.BlockingConnection(params)
+        print("✓ Connected to RabbitMQ (CloudAMQP)")
+        return connection
+    except Exception as e:
+        print(f"✗ RabbitMQ Connection Error: {e}")
+        return None
+
 
 def start_event_subscriber():
     """Start RabbitMQ event subscriber in a separate thread to handle user events"""
-    import threading
-    import pika
 
     def subscriber():
         while True:
             try:
-                rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
-                rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
-                rabbitmq_user = os.getenv('RABBITMQ_USER', 'guest')
-                rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'guest')
+                rabbitmq_url = os.getenv('RABBITMQ_URL')
+                if not rabbitmq_url:
+                    print("✗ RABBITMQ_URL not set, cannot start subscriber")
+                    time.sleep(10)
+                    continue
 
-                credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
-                parameters = pika.ConnectionParameters(
-                    host=rabbitmq_host,
-                    port=rabbitmq_port,
-                    credentials=credentials
-                )
+                # Use URLParameters for CloudAMQP
+                params = pika.URLParameters(rabbitmq_url)
+                params.socket_timeout = 10
+                params.connection_attempts = 3
+                params.heartbeat = 600
+                params.blocked_connection_timeout = 300
 
-                connection = pika.BlockingConnection(parameters)
+                connection = pika.BlockingConnection(params)
                 channel = connection.channel()
 
                 # Declare the exchange (must match user service)
@@ -92,7 +115,7 @@ def start_event_subscriber():
                 channel.queue_bind(
                     exchange='user_events', 
                     queue=queue_name, 
-                    routing_key='user.*'  # Listen to all user events
+                    routing_key='user.created'
                 )
 
                 print("✓ Order service subscribed to user events")
@@ -123,6 +146,10 @@ def start_event_subscriber():
                                 sync_user_address(user_id, new_address)
                                 print(f"✓ Synchronized address for user {user_id} to {new_address}")
                         
+                        # Handle user created event
+                        elif event_type == "created":
+                            print(f"✓ New user created: {data}")
+                        
                         ch.basic_ack(delivery_tag=method.delivery_tag)
                         
                     except Exception as e:
@@ -137,7 +164,6 @@ def start_event_subscriber():
             except Exception as e:
                 print(f"RabbitMQ subscriber error: {e}")
                 print("Retrying in 5 seconds...")
-                import time
                 time.sleep(5)
 
     thread = threading.Thread(target=subscriber, daemon=True)
@@ -145,7 +171,7 @@ def start_event_subscriber():
     return thread
 
 
-# Synchronization helper function --------------------------------
+# Synchronization helper functions --------------------------------
 
 def sync_user_email(user_id, new_email):
     """Synchronize user email across all their orders"""
@@ -170,16 +196,16 @@ def sync_user_address(user_id, new_address):
     return 0
 
 
-#Endpoints ----------------------------------
+# Endpoints ----------------------------------
 
-# To greet
 @app.route('/', methods=['GET'])
 def greetings():
     return 'Order Service is running!'
 
-# To list all orders
 @app.route('/orders', methods=['GET'])
 def list_orders():
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     orders = get_all_orders()
     if not orders:
         return jsonify({"status": "No orders found"})
@@ -188,9 +214,10 @@ def list_orders():
             order["_id"] = str(order["_id"])  
         return jsonify({"status": orders})
 
-# To get orders by status
 @app.route('/orders/status/<status>', methods=['GET'])
 def list_orders_by_status(status):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     orders = get_orders_by_status(status)
     if not orders:
         return jsonify({"status": f"No orders found with status: {status}"})
@@ -199,9 +226,10 @@ def list_orders_by_status(status):
             order["_id"] = str(order["_id"])  
         return jsonify({"status": orders})
 
-# To see order details by order_id
 @app.route('/order/<order_id>', methods=['GET'])
 def see_order(order_id):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     order = orderExists(order_id)
     if order:
         order["_id"] = str(order["_id"])
@@ -209,9 +237,10 @@ def see_order(order_id):
     else:
         return jsonify({"status": "Order not found with id " + order_id}), 404
 
-# To create an order
 @app.route('/order', methods=['POST'])
 def create_order():
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     user_id = data.get("user_id")
     items = data.get("items")
@@ -233,10 +262,10 @@ def create_order():
         "items": order_items
     })
 
-
-# To update status of an order
 @app.route('/order/<order_id>', methods=['PUT'])
 def update_order(order_id):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     status = data.get("status")
     
@@ -245,9 +274,10 @@ def update_order(order_id):
     else:
         return jsonify({"status": "Failed to update order. Invalid status or order not found."}), 400
 
-# To update order email
 @app.route('/order/<order_id>/email', methods=['PUT'])
 def update_order_email(order_id):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     email = data.get("email")
     
@@ -261,9 +291,10 @@ def update_order_email(order_id):
     else:
         return jsonify({"status": "Order not found with id " + order_id}), 404
 
-# To update order address
 @app.route('/order/<order_id>/address', methods=['PUT'])
 def update_order_address(order_id):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     address = data.get("delivery_address")
     
@@ -277,9 +308,10 @@ def update_order_address(order_id):
     else:
         return jsonify({"status": "Order not found with id " + order_id}), 404
 
-# To update user contact info across all their orders (direct API call)
 @app.route('/user/contact/<user_id>', methods=['PUT'])
 def update_user_contact(user_id):
+    if orders_collection is None:
+        return jsonify({"status": "Database not connected"}), 503
     data = request.get_json()
     email = data.get("email")
     address = data.get("delivery_address")
@@ -293,22 +325,18 @@ def update_user_contact(user_id):
 
 # Helper functions --------------------------------
 
-# Function to get all orders
 def get_all_orders():
     result = list(orders_collection.find())
     return result
 
-# Function to get orders by status
 def get_orders_by_status(status):
     result = list(orders_collection.find({"status": status}))
     return result
 
-# Function to get number of orders
 def get_number_of_orders():
     count = get_all_orders()
     return len(count)
 
-# Function to find new order_id
 def find_new_order_id():
     orders = get_all_orders()
     if not orders:
@@ -316,7 +344,6 @@ def find_new_order_id():
     max_id = max(order.get("order_id", 0) for order in orders)
     return max_id + 1
 
-# Helper function to create an order
 def orderCreation(user_id, items, email, address):
     results = orders_collection.insert_one({
         "order_id": find_new_order_id(),
@@ -328,17 +355,14 @@ def orderCreation(user_id, items, email, address):
     })
     return results
 
-# Helper function to check if order exists
 def orderExists(order_id):
     order = orders_collection.find_one({"order_id": int(order_id)})
     return order
 
-# Helper function to see if user has any orders
 def userDidOrder(user_id):
     orders = list(orders_collection.find({"user_id": str(user_id)}))
     return orders
 
-# Helper function to update order status
 def orderStatusUpdate(order_id, status):
     valid_statuses = ["under process", "shipping", "delivered"]
     if status not in valid_statuses:
@@ -351,7 +375,6 @@ def orderStatusUpdate(order_id, status):
         return True
     return False
 
-# Helper function to update user contact info across all their orders
 def userContactUpdate(user_id, email, address):
     update_fields = {}
     if email:
@@ -368,6 +391,8 @@ def userContactUpdate(user_id, email, address):
     return False
 
 if __name__ == '__main__':
-    print("Microservices order ACTIVATE!!!!")
+    print("=" * 50)
+    print("Order Service STARTING")
+    print("=" * 50)
     start_event_subscriber()
     app.run(host='0.0.0.0', port=5002, debug=True)
