@@ -19,25 +19,25 @@ jobs:
 
       - name: Build and push api-gateway
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/api-gateway:${{ github.sha }} -t coen314a2acr.azurecr.io/api-gateway:latest ./api_gateway
+          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/api-gateway:${{ github.sha }} -t coen314a2acr.azurecr.io/api-gateway:latest ./server/api_gateway
           docker push coen314a2acr.azurecr.io/api-gateway --all-tags
 
       - name: Build and push user-v1
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v1:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v1:latest ./user_V1
+          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v1:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v1:latest ./server/user_V1
           docker push coen314a2acr.azurecr.io/user-v1 --all-tags
 
       - name: Build and push user-v2
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v2:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v2:latest ./user_V2
+          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v2:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v2:latest ./server/user_V2
           docker push coen314a2acr.azurecr.io/user-v2 --all-tags
 
       - name: Build and push order
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/order:${{ github.sha }} -t coen314a2acr.azurecr.io/order:latest ./order
+          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/order:${{ github.sha }} -t coen314a2acr.azurecr.io/order:latest ./server/order
           docker push coen314a2acr.azurecr.io/order --all-tags
 
       - name: Build and push event
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/event:${{ github.sha }} -t coen314a2acr.azurecr.io/event:latest ./event
+          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/event:${{ github.sha }} -t coen314a2acr.azurecr.io/event:latest ./server/event
           docker push coen314a2acr.azurecr.io/event --all-tags
