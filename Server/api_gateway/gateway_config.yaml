@@ -14,7 +14,7 @@ strangler_pattern:
 services:
   user_v1: http://localhost:5000
   user_v2: http://localhost:5001
-  order: http://242order-d9d5egcuauabdzab.eastus2-01.azurewebsites.net
+  order: http://localhost:5002
   event: http://localhost:5003
 
 # Request timeout in seconds

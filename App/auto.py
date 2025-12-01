@@ -21,9 +21,8 @@ import sys
 GATEWAY_URL = "http://localhost:8000"
 USER_V1_URL = "http://localhost:5000"
 USER_V2_URL = "http://localhost:5001"
-ORDER_URL = "http://242order-d9d5egcuauabdzab.eastus2-01.azurewebsites.net"
+ORDER_URL = "http://localhost:5002"
 EVENT_URL = "http://localhost:5003"
-
 # Test data storage
 created_user_id = None
 created_order_id = None

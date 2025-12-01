@@ -17,7 +17,7 @@ app = Flask(__name__)
 # Fetch environment variables for service URLs
 USER_V1_URL = os.getenv('USER_V1_URL', 'http://localhost:5000')
 USER_V2_URL = os.getenv('USER_V2_URL', 'http://localhost:5001')
-ORDER_SERVICE_URL = os.getenv('ORDER_SERVICE_URL', 'http://242order-d9d5egcuauabdzab.eastus2-01.azurewebsites.net')
+ORDER_SERVICE_URL = os.getenv('ORDER_SERVICE_URL', 'http://localhost:5002')
 EVENT_SERVICE_URL = os.getenv('EVENT_SERVICE_URL', 'http://localhost:5003')
 
 # Configuration file path
