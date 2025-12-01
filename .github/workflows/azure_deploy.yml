@@ -2,15 +2,17 @@ name: Build and Push to ACR
 
 on:
   push:
-    branches: [master]
+    branches: [ master ]
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Login to ACR
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure ACR Login
         uses: docker/login-action@v3
         with:
           registry: coen314a2acr.azurecr.io
@@ -19,25 +21,40 @@ jobs:
 
       - name: Build and push api-gateway
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/api-gateway:${{ github.sha }} -t coen314a2acr.azurecr.io/api-gateway:latest ./Server/api_gateway
+          docker build --platform linux/amd64 \
+            -t coen314a2acr.azurecr.io/api-gateway:${{ github.sha }} \
+            -t coen314a2acr.azurecr.io/api-gateway:latest \
+            ./Server/api_gateway
           docker push coen314a2acr.azurecr.io/api-gateway --all-tags
 
       - name: Build and push user-v1
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v1:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v1:latest ./Server/user_V1
+          docker build --platform linux/amd64 \
+            -t coen314a2acr.azurecr.io/user-v1:${{ github.sha }} \
+            -t coen314a2acr.azurecr.io/user-v1:latest \
+            ./Server/user_V1
           docker push coen314a2acr.azurecr.io/user-v1 --all-tags
 
       - name: Build and push user-v2
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/user-v2:${{ github.sha }} -t coen314a2acr.azurecr.io/user-v2:latest ./Server/user_V2
+          docker build --platform linux/amd64 \
+            -t coen314a2acr.azurecr.io/user-v2:${{ github.sha }} \
+            -t coen314a2acr.azurecr.io/user-v2:latest \
+            ./Server/user_V2
           docker push coen314a2acr.azurecr.io/user-v2 --all-tags
 
       - name: Build and push order
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/order:${{ github.sha }} -t coen314a2acr.azurecr.io/order:latest ./Server/order
+          docker build --platform linux/amd64 \
+            -t coen314a2acr.azurecr.io/order:${{ github.sha }} \
+            -t coen314a2acr.azurecr.io/order:latest \
+            ./Server/order
           docker push coen314a2acr.azurecr.io/order --all-tags
 
       - name: Build and push event
         run: |
-          docker build --platform linux/amd64 -t coen314a2acr.azurecr.io/event:${{ github.sha }} -t coen314a2acr.azurecr.io/event:latest ./Server/event
+          docker build --platform linux/amd64 \
+            -t coen314a2acr.azurecr.io/event:${{ github.sha }} \
+            -t coen314a2acr.azurecr.io/event:latest \
+            ./Server/event
           docker push coen314a2acr.azurecr.io/event --all-tags
