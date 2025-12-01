@@ -101,7 +101,7 @@ def get_user_service_url():
 @app.route('/', methods=['GET'])
 def hello_world():
     """Simple health check - returns immediately"""
-    return "API Gateway is running!" + USER_V1_URL 
+    return "API Gateway is running!"
 
 # Detailed status check (checks all services) - use /status instead
 @app.route('/status', methods=['GET'])
