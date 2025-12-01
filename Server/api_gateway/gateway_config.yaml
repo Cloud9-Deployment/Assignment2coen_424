@@ -10,12 +10,12 @@ strangler_pattern:
   v1_percentage: 80    # 80% of requests go to V1
   v2_percentage: 20    # 20% of requests go to V2
 
-# Service URLs (can be overridden by environment variables)
-services:
-  user_v1: http://localhost:5000
-  user_v2: http://localhost:5001
-  order: http://localhost:5002
-  event: http://localhost:5003
+# NOTE: Service URLs are now set via environment variables:
+# - USER_V1_URL
+# - USER_V2_URL  
+# - ORDER_SERVICE_URL
+# - EVENT_SERVICE_URL
+# This allows different URLs for local dev vs Azure deployment
 
 # Request timeout in seconds
 timeout: 10

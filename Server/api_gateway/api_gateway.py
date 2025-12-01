@@ -31,12 +31,6 @@ def load_config():
             'v1_percentage': 0,   # P percentage goes to V1
             'v2_percentage': 100  # (1-P) percentage goes to V2
         },
-        'services': {
-            'user_v1': USER_V1_URL,
-            'user_v2': USER_V2_URL,
-            'order': ORDER_SERVICE_URL,
-            'event': EVENT_SERVICE_URL
-        },
         'timeout': 10
     }
     
@@ -50,13 +44,29 @@ def load_config():
                 for key in default_config:
                     if key not in config:
                         config[key] = default_config[key]
-                return config
         else:
             print(f"Config file not found, using defaults (V1: 0%, V2: 100%)")
-            return default_config
+            config = default_config
     except Exception as e:
         print(f"Error loading config: {e}, using defaults")
-        return default_config
+        config = default_config
+    
+    # ALWAYS use environment variables for service URLs (override any YAML values)
+    # This ensures Azure Container Apps env vars are used in production
+    config['services'] = {
+        'user_v1': USER_V1_URL,
+        'user_v2': USER_V2_URL,
+        'order': ORDER_SERVICE_URL,
+        'event': EVENT_SERVICE_URL
+    }
+    
+    print(f"Service URLs configured:")
+    print(f"  User V1: {config['services']['user_v1']}")
+    print(f"  User V2: {config['services']['user_v2']}")
+    print(f"  Order: {config['services']['order']}")
+    print(f"  Event: {config['services']['event']}")
+    
+    return config
 
 
 # Load initial configuration
@@ -113,31 +123,36 @@ def detailed_status():
     response += f"V2 Traffic: {config['strangler_pattern']['v2_percentage']}%\n"
     response += "\n=== Service Status ===\n"
     
-    timeout = 2  # Short timeout for status checks
+    timeout = 5  # Short timeout for status checks
+    
+    user_v1_url = config['services'].get('user_v1', USER_V1_URL)
+    user_v2_url = config['services'].get('user_v2', USER_V2_URL)
+    order_url = config['services'].get('order', ORDER_SERVICE_URL)
+    event_url = config['services'].get('event', EVENT_SERVICE_URL)
     
     try:
-        res1 = requests.get(f"{config['services'].get('user_v1', USER_V1_URL)}/", timeout=timeout)
-        response += f"User V1: {res1.text if res1.status_code == 200 else 'Error'}\n"
-    except:
-        response += "User V1: Unavailable\n"
+        res1 = requests.get(f"{user_v1_url}/", timeout=timeout)
+        response += f"User V1 ({user_v1_url}): {res1.text if res1.status_code == 200 else 'Error'}\n"
+    except Exception as e:
+        response += f"User V1 ({user_v1_url}): Unavailable - {str(e)[:50]}\n"
     
     try:
-        res2 = requests.get(f"{config['services'].get('user_v2', USER_V2_URL)}/", timeout=timeout)
-        response += f"User V2: {res2.text if res2.status_code == 200 else 'Error'}\n"
-    except:
-        response += "User V2: Unavailable\n"
+        res2 = requests.get(f"{user_v2_url}/", timeout=timeout)
+        response += f"User V2 ({user_v2_url}): {res2.text if res2.status_code == 200 else 'Error'}\n"
+    except Exception as e:
+        response += f"User V2 ({user_v2_url}): Unavailable - {str(e)[:50]}\n"
     
     try:
-        res3 = requests.get(f"{config['services'].get('order', ORDER_SERVICE_URL)}/", timeout=timeout)
-        response += f"Order Service: {res3.text if res3.status_code == 200 else 'Error'}\n"
-    except:
-        response += "Order Service: Unavailable\n"
+        res3 = requests.get(f"{order_url}/", timeout=timeout)
+        response += f"Order Service ({order_url}): {res3.text if res3.status_code == 200 else 'Error'}\n"
+    except Exception as e:
+        response += f"Order Service ({order_url}): Unavailable - {str(e)[:50]}\n"
     
     try:
-        res4 = requests.get(f"{config['services'].get('event', EVENT_SERVICE_URL)}/", timeout=timeout)
-        response += f"Event Service: {res4.text if res4.status_code == 200 else 'Error'}\n"
-    except:
-        response += "Event Service: Unavailable\n"
+        res4 = requests.get(f"{event_url}/", timeout=timeout)
+        response += f"Event Service ({event_url}): {res4.text if res4.status_code == 200 else 'Error'}\n"
+    except Exception as e:
+        response += f"Event Service ({event_url}): Unavailable - {str(e)[:50]}\n"
     
     return response
 

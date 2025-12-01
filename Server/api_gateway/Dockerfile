@@ -20,5 +20,5 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-# Run Gunicorn with 2 workers (adjust as needed)
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "api_gateway:app"]
+# Run Gunicorn with 2 workers and 120s timeout (matches other services)
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "api_gateway:app"]
