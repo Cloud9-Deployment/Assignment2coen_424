@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 users_collection = None
 def connect_to_mongodb():
-
+    global users_collection
     try:
         username = quote_plus(os.getenv('MONGODB_USER'))
         password = quote_plus(os.getenv('MONGODB_PASSWORD'))
