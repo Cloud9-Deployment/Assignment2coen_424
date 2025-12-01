@@ -274,6 +274,6 @@ def userUpdate(object_id, user_account_id, email, address):
 if __name__ == '__main__':
     print("Microservices user V1 ACTIVATE!!!!")
     connect_to_mongodb()
-    print("Waiting for RabbitMQ to be ready...")
+    print("MongoDB connection established.")
     wait_for_rabbitmq()
     app.run(host='0.0.0.0', port=5000, debug=True)
