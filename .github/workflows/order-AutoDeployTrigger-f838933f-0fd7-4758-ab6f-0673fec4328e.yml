@@ -34,7 +34,7 @@ jobs:
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}Server/order
+          appSourcePath: ${{ github.workspace }}/Server/order
           _dockerfilePathKey_: _dockerfilePath_
           _targetLabelKey_: _targetLabel_
           registryUrl: coen314a2acr.azurecr.io
@@ -45,5 +45,6 @@ jobs:
           imageToBuild: coen314a2acr.azurecr.io/order:${{ github.sha }}
           _buildArgumentsKey_: |
             _buildArgumentsValues_
+
 
 
