@@ -55,7 +55,6 @@ def get_rabbitmq_connection():
         return None
     
     try:
-        # Use URLParameters for CloudAMQP (handles amqps:// SSL connections)
         params = pika.URLParameters(rabbitmq_url)
         params.socket_timeout = 10
         params.connection_attempts = 3
@@ -80,7 +79,8 @@ def start_event_subscriber():
                     time.sleep(10)
                     continue
 
-                # Use URLParameters for CloudAMQP
+                print("🔄 Order service connecting to RabbitMQ...")
+
                 params = pika.URLParameters(rabbitmq_url)
                 params.socket_timeout = 10
                 params.connection_attempts = 3
@@ -90,38 +90,22 @@ def start_event_subscriber():
                 connection = pika.BlockingConnection(params)
                 channel = connection.channel()
 
-                # Declare the exchange (must match user service)
                 channel.exchange_declare(
                     exchange='user_events', 
                     exchange_type='topic', 
                     durable=True
                 )
                 
-                # Declare a queue for order service
                 result = channel.queue_declare(queue='order_service_queue', durable=True)
                 queue_name = result.method.queue
 
-                # Bind to user events - listen for email and address updates
-                channel.queue_bind(
-                    exchange='user_events', 
-                    queue=queue_name, 
-                    routing_key='user.email_updated'
-                )
-                channel.queue_bind(
-                    exchange='user_events', 
-                    queue=queue_name, 
-                    routing_key='user.address_updated'
-                )
-                channel.queue_bind(
-                    exchange='user_events', 
-                    queue=queue_name, 
-                    routing_key='user.created'
-                )
+                channel.queue_bind(exchange='user_events', queue=queue_name, routing_key='user.email_updated')
+                channel.queue_bind(exchange='user_events', queue=queue_name, routing_key='user.address_updated')
+                channel.queue_bind(exchange='user_events', queue=queue_name, routing_key='user.created')
 
                 print("✓ Order service subscribed to user events")
 
                 def callback(ch, method, properties, body):
-                    """Handle incoming events and synchronize data"""
                     try:
                         event_data = json.loads(body.decode())
                         routing_key = method.routing_key
@@ -130,23 +114,20 @@ def start_event_subscriber():
                         event_type = event_data.get("event_type")
                         data = event_data.get("data", {})
                         
-                        # Handle email update synchronization
                         if event_type == "email_updated":
                             user_id = data.get("user_account_id")
                             new_email = data.get("new_email")
                             if user_id and new_email:
-                                sync_user_email(user_id, new_email)
-                                print(f"✓ Synchronized email for user {user_id} to {new_email}")
+                                count = sync_user_email(user_id, new_email)
+                                print(f"✓ Synchronized email for user {user_id} to {new_email} ({count} orders updated)")
                         
-                        # Handle address update synchronization
                         elif event_type == "address_updated":
                             user_id = data.get("user_account_id")
                             new_address = data.get("new_address")
                             if user_id and new_address:
-                                sync_user_address(user_id, new_address)
-                                print(f"✓ Synchronized address for user {user_id} to {new_address}")
+                                count = sync_user_address(user_id, new_address)
+                                print(f"✓ Synchronized address for user {user_id} to {new_address} ({count} orders updated)")
                         
-                        # Handle user created event
                         elif event_type == "created":
                             print(f"✓ New user created: {data}")
                         
@@ -158,7 +139,7 @@ def start_event_subscriber():
 
                 channel.basic_consume(queue=queue_name, on_message_callback=callback)
 
-                print("✓ Waiting for user events...")
+                print("✓ Order service waiting for user events...")
                 channel.start_consuming()
 
             except Exception as e:
@@ -168,6 +149,7 @@ def start_event_subscriber():
 
     thread = threading.Thread(target=subscriber, daemon=True)
     thread.start()
+    print("✓ Order service RabbitMQ subscriber thread started")
     return thread
 
 
@@ -180,7 +162,7 @@ def sync_user_email(user_id, new_email):
             {"user_id": str(user_id)},
             {"$set": {"user_email": new_email}}
         )
-        print(f"Updated {result.modified_count} orders with new email")
+        print(f"Updated {result.modified_count} orders with new email for user {user_id}")
         return result.modified_count
     return 0
 
@@ -191,7 +173,7 @@ def sync_user_address(user_id, new_address):
             {"user_id": str(user_id)},
             {"$set": {"user_address": new_address}}
         )
-        print(f"Updated {result.modified_count} orders with new address")
+        print(f"Updated {result.modified_count} orders with new address for user {user_id}")
         return result.modified_count
     return 0
 
@@ -390,9 +372,18 @@ def userContactUpdate(user_id, email, address):
         return True
     return False
 
+
+# ============================================================
+# START RABBITMQ SUBSCRIBER AT MODULE LOAD
+# This ensures it runs with Gunicorn (not just when __main__)
+# ============================================================
+print("=" * 50)
+print("Order Service STARTING")
+print("=" * 50)
+
+# Start the RabbitMQ subscriber thread when module loads
+start_event_subscriber()
+
+
 if __name__ == '__main__':
-    print("=" * 50)
-    print("Order Service STARTING")
-    print("=" * 50)
-    start_event_subscriber()
     app.run(host='0.0.0.0', port=5002, debug=True)
